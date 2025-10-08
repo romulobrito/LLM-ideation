@@ -379,22 +379,37 @@ def _select_openrouter_api_key(model: str, override: str | None = None) -> str:
 
 def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: int=400, temperature: float=0.3, image_url: str="", api_key_override: str | None = None, reasoning_effort: str | None = None) -> str:
     """
-    Generate text using OpenRouter-compatible API (OpenAI client).
-    Works with DeepSeek and GPT-5 ids. Optional image_url for vision models.
-    Requires env var OPENROUTER_API_KEY.
+    Generate text using OpenRouter OR OpenAI direct API.
+    - Models with '/' (e.g., 'deepseek/deepseek-chat', 'openai/gpt-4') use OpenRouter
+    - Models without '/' (e.g., 'gpt-4', 'gpt-3.5-turbo') use OpenAI direct
+    Optional image_url for vision models.
+    Requires env var OPENROUTER_API_KEY or OPENAI_API_KEY.
     """
-    api_key = _select_openrouter_api_key(model, api_key_override)
     try:
         from openai import OpenAI
-        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
-        # Optional OpenRouter headers
-        site_url = os.getenv("OPENROUTER_SITE_URL", "")
-        site_title = os.getenv("OPENROUTER_SITE_TITLE", "")
-        extra_headers = {}
-        if site_url:
-            extra_headers["HTTP-Referer"] = site_url
-        if site_title:
-            extra_headers["X-Title"] = site_title
+        
+        # Detectar se e OpenRouter (tem '/') ou OpenAI direta (sem '/')
+        use_openrouter = "/" in model
+        
+        if use_openrouter:
+            # OpenRouter
+            api_key = _select_openrouter_api_key(model, api_key_override)
+            client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+            # Optional OpenRouter headers
+            site_url = os.getenv("OPENROUTER_SITE_URL", "")
+            site_title = os.getenv("OPENROUTER_SITE_TITLE", "")
+            extra_headers = {}
+            if site_url:
+                extra_headers["HTTP-Referer"] = site_url
+            if site_title:
+                extra_headers["X-Title"] = site_title
+        else:
+            # OpenAI direta
+            api_key = api_key_override or os.getenv("OPENAI_API_KEY", "")
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY nao definida. Configure no .env para usar modelos OpenAI diretos.")
+            client = OpenAI(api_key=api_key.strip())
+            extra_headers = None
 
         # Build messages: text only or multimodal if image_url is provided
         if image_url:
@@ -407,18 +422,24 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
             msgs = [{"role": "user", "content": prompt}]
 
         # Optional reasoning body for models that support it (e.g., gpt-5)
+        # Nota: OpenAI direta pode nao suportar extra_body, entao so adiciona se for OpenRouter
         extra_body = None
-        if reasoning_effort:
+        if reasoning_effort and use_openrouter:
             extra_body = {"reasoning": {"effort": reasoning_effort}}
 
-        resp = client.chat.completions.create(
-            model=model,
-            messages=msgs,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            extra_headers=extra_headers if extra_headers else None,
-            extra_body=extra_body,
-        )
+        # Criar parametros da chamada
+        call_params = {
+            "model": model,
+            "messages": msgs,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if extra_headers:
+            call_params["extra_headers"] = extra_headers
+        if extra_body:
+            call_params["extra_body"] = extra_body
+
+        resp = client.chat.completions.create(**call_params)
         # Extracao robusta de texto (cobre respostas multimodais e modelos de raciocinio)
         if not getattr(resp, "choices", None) or len(resp.choices) == 0:
             raise RuntimeError("Resposta sem choices do modelo.")
@@ -467,7 +488,8 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
             pass
         raise RuntimeError("Resposta vazia do modelo. Verifique chave, acesso ao modelo e quotas.")
     except Exception as e:
-        raise RuntimeError(f"Falha ao chamar DeepSeek via OpenRouter: {e}")
+        provider = "OpenRouter" if "/" in model else "OpenAI"
+        raise RuntimeError(f"Falha ao chamar {model} via {provider}: {e}")
 
 # CLI
 
@@ -523,12 +545,12 @@ def main():
         hypothesis = None
         if args.prompt:
             try:
-                hypothesis = call_deepseek(args.prompt, model=args.model, max_tokens=args.max_tokens, temperature=args.temperature)
+                hypothesis = call_deepseek(args.prompt, model=args.model, max_tokens=args.max_tokens, temperature=args.temperature, reasoning_effort=args.reasoning_effort)
                 generated = True
             except Exception as e:
                 print(f"Nao foi possivel gerar com DeepSeek ({e}).", file=sys.stderr)
                 print("   Voce ainda pode avaliar BLEU passando --hypothesis com sua saida ou usar --hyp-file.", file=sys.stderr)
-                sys.exit(3)
+            sys.exit(3)
         elif hyp_set:
             # se apenas conjunto foi fornecido, usar a primeira hipotese para metricas unitarias
             hypothesis = hyp_set[0]

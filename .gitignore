@@ -44,3 +44,6 @@ vectorstore*/
 *.zip
 *.pt
 *.bin
+prompt
+11760_Measuring_similarity_bet.txt
+modell_ai_metrics.txt 

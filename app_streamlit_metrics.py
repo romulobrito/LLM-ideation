@@ -11,6 +11,8 @@ Requer variavel OPENROUTER_API_KEY no ambiente para gerar via DeepSeek.
 """
 
 import os
+import sys
+import subprocess
 from typing import List, Sequence, Optional, Dict, Any, Tuple
 
 import streamlit as st
@@ -352,14 +354,33 @@ def main() -> None:
         st.subheader("Parâmetros de geração (se usar LLM)")
         provider = st.selectbox(
             "Provedor/Modelo",
-            options=["DeepSeek", "GPT-5 (OpenRouter)", "Custom (OpenRouter)"],
+            options=["OpenAI Direta (GPT-4, GPT-3.5)", "DeepSeek (OpenRouter)", "GPT-5 (OpenRouter)", "Custom (OpenRouter)"],
             index=0,
-            help="Todos os modelos usam a API do OpenRouter via cliente OpenAI.",
+            help="OpenAI Direta usa OPENAI_API_KEY. OpenRouter usa OPENROUTER_API_KEY_*.",
         )
-        default_model = "deepseek/deepseek-chat" if provider == "DeepSeek" else ("openai/gpt-5" if provider == "GPT-5 (OpenRouter)" else "")
-        model_name = st.text_input("Model ID (OpenRouter)", value=default_model, help="Ex.: deepseek/deepseek-chat, openai/gpt-5")
+        
+        # Definir modelo padrao baseado no provedor
+        if provider == "OpenAI Direta (GPT-4, GPT-3.5)":
+            default_model = "gpt-4o-mini"
+            model_label = "Model ID (OpenAI)"
+            model_help = "Ex.: gpt-4, gpt-4o-mini, gpt-3.5-turbo (sem '/' para OpenAI direta)"
+        elif provider == "DeepSeek (OpenRouter)":
+            default_model = "deepseek/deepseek-chat"
+            model_label = "Model ID (OpenRouter)"
+            model_help = "Ex.: deepseek/deepseek-chat (com '/' para OpenRouter)"
+        elif provider == "GPT-5 (OpenRouter)":
+            default_model = "openai/gpt-5"
+            model_label = "Model ID (OpenRouter)"
+            model_help = "Ex.: openai/gpt-5 (com '/' para OpenRouter)"
+        else:
+            default_model = ""
+            model_label = "Model ID (OpenRouter)"
+            model_help = "Ex.: anthropic/claude-3-opus, meta-llama/llama-3-70b (com '/' para OpenRouter)"
+        
+        model_name = st.text_input(model_label, value=default_model, help=model_help)
         image_url = st.text_input("Image URL (opcional, para modelos vision)", value="", help="Se preenchido, envia prompt multimodal (texto+imagem)")
         api_key_override = st.text_input("API Key (override opcional)", value="", type="password", help="Se preencher, esta chave sera usada em vez das do .env")
+        
         # Raciocinio (apenas modelos que suportam)
         reasoning_effort = st.selectbox(
             "Raciocinio (se suportado pelo modelo)",
@@ -367,27 +388,39 @@ def main() -> None:
             index=0,
             help="Para modelos como openai/gpt-5 que expõem reasoning, define o effort.",
         )
+        
         # Diagnostico de chave: mostra qual variavel sera usada (sem expor o valor)
-        with st.expander("Diagnostico de chave OpenRouter", expanded=False):
+        with st.expander("Diagnostico de chave API", expanded=False):
             mdl = (model_name or "").strip()
-            vendor = mdl.split("/", 1)[0].lower().replace("-", "_") if "/" in mdl else ""
-            cand = ([f"OPENROUTER_API_KEY_{vendor.upper()}"] if vendor else []) + ["OPENROUTER_API_KEY"]
-            found = None
-            for name in cand:
-                if os.getenv(name, ""):
-                    found = name
-                    break
+            use_openrouter = "/" in mdl
+            
+            if use_openrouter:
+                st.info("🔀 Modo: OpenRouter (modelo com '/')")
+                vendor = mdl.split("/", 1)[0].lower().replace("-", "_")
+                cand = ([f"OPENROUTER_API_KEY_{vendor.upper()}"] if vendor else []) + ["OPENROUTER_API_KEY"]
+                found = None
+                for name in cand:
+                    if os.getenv(name, ""):
+                        found = name
+                        break
+                st.write("Modelo:", mdl or "(vazio)")
+                st.write("Vendor detectado:", vendor or "(indefinido)")
+                st.write("Variaveis candidatas:", ", ".join(cand) if cand else "OPENROUTER_API_KEY")
+                st.write("Variavel selecionada:", found or "nenhuma encontrada")
+            else:
+                st.success("✅ Modo: OpenAI Direta (modelo sem '/')")
+                openai_key = os.getenv("OPENAI_API_KEY", "")
+                st.write("Modelo:", mdl or "(vazio)")
+                st.write("Variavel usada: OPENAI_API_KEY")
+                st.write("Status:", "✅ Definida" if openai_key else "❌ Nao encontrada")
+            
             if api_key_override.strip():
-                st.info("Override ativo: uma chave fornecida na UI sera usada nesta chamada.")
-            st.write("Modelo:", mdl or "(vazio)")
-            st.write("Vendor detectado:", vendor or "(indefinido)")
-            st.write("Variaveis candidatas:", ", ".join(cand) if cand else "OPENROUTER_API_KEY")
-            st.write("Variavel selecionada:", found or "nenhuma encontrada")
+                st.info("🔑 Override ativo: uma chave fornecida na UI sera usada nesta chamada.")
 
         st.divider()
         st.subheader("Fonte das Referências")
         refs_path = st.text_input(
-            "Caminho (arquivo ou pasta)", value="",
+            "Caminho (arquivo ou pasta)", value="/home/romulo/Documentos/MAI-DAI-USP/refs_combined.txt",
             help="Se preencher, o app vai carregar referencias deste caminho. Em pasta, cada arquivo .txt/.md vira uma referencia."
         )
         temperature = st.slider("Temperatura", min_value=0.0, max_value=1.0, value=0.3, step=0.1)
@@ -772,6 +805,133 @@ def main() -> None:
         st.markdown("**Dicas:**")
         st.markdown("- Varie **k** para focar em estrutura local (k pequeno) vs global (k grande).")
         st.markdown("- A curva **H(k)** é o baseline analítico para dados i.i.d. aleatórios: se NNGS ~ H(k), há pouca correspondência estrutural entre X e Y.")
+
+
+    # ===================== Modo Experimento (batch) =====================
+    st.markdown("---")
+    st.markdown("## 🧪 Experimento Iterativo (Batch)")
+    with st.expander("⚙️ Configurações e Execução do Experimento", expanded=True):
+        st.caption("Executa o ciclo iterativo: gera 2 ideias, mede distancias, realimenta com feedback A/B e repete.")
+        out_dir_exp = st.text_input("Pasta de saída", value="exp_out", help="Os resultados por referência serão salvos aqui")
+        embedder_exp = st.text_input("Modelo de embeddings (ST)", value="all-MiniLM-L6-v2")
+        device_exp = st.selectbox("Device para embeddings", ["auto", "cuda", "cpu"], index=0)
+        max_iters_exp = st.number_input("Max iterações por referência", min_value=1, max_value=200, value=30)
+        patience_exp = st.number_input("Paciência (early stop)", min_value=1, max_value=50, value=5)
+        delta_exp = st.number_input("Delta de melhora mínima", min_value=0.0, max_value=1.0, value=0.005, step=0.001, format="%.3f")
+
+        can_run = True
+        if not (refs_path or "").strip() and not (refs_raw or "").strip():
+            st.warning("Informe referências por caminho ou texto.")
+            can_run = False
+        
+        # Validar chave API baseado no modelo
+        model_check = (model_name or "").strip()
+        if "/" in model_check:
+            # OpenRouter
+            vendor = model_check.split("/", 1)[0].lower().replace("-", "_")
+            key_candidates = [f"OPENROUTER_API_KEY_{vendor.upper()}", "OPENROUTER_API_KEY"]
+            has_key = any(os.getenv(k, "") for k in key_candidates)
+            if not has_key:
+                st.error(f"Modelo OpenRouter '{model_check}' requer chave API. Defina {key_candidates[0]} ou OPENROUTER_API_KEY no .env")
+                can_run = False
+        else:
+            # OpenAI direta
+            if not os.getenv("OPENAI_API_KEY", ""):
+                st.error(f"Modelo OpenAI '{model_check}' requer OPENAI_API_KEY no .env")
+                can_run = False
+
+        if st.button("Iniciar experimento", type="primary", disabled=not can_run):
+            # Se não veio por caminho, salvar refs_raw temporariamente para execução do script
+            refs_arg = (refs_path or "").strip()
+            tmp_file = None
+            if not refs_arg:
+                import tempfile
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+                tmp.write((refs_raw or "").encode("utf-8"))
+                tmp.flush()
+                tmp.close()
+                refs_arg = tmp.name
+                tmp_file = tmp.name
+
+            reasoning_arg = reasoning_effort if reasoning_effort != "Nenhum" else "None"
+            model_arg = model_name.strip() or "gpt-4o-mini"
+            
+            # Caminho para o script experiment_iterativo.py
+            script_path = Path(__file__).parent / "experiment_iterativo.py"
+            
+            cmd = [
+                sys.executable,
+                str(script_path),
+                "--refs-path", refs_arg,
+                "--out-dir", out_dir_exp,
+                "--model", model_arg,
+                "--reasoning", reasoning_arg,
+                "--temperature", str(temperature),
+                "--max-tokens", str(max_tokens),
+                "--embedder", embedder_exp,
+                "--device", device_exp,
+                "--max-iters", str(int(max_iters_exp)),
+                "--patience", str(int(patience_exp)),
+                "--delta", str(float(delta_exp)),
+            ]
+            st.info("🚀 Iniciando experimento... Acompanhe o progresso abaixo:")
+            
+            # Container para logs em tempo real
+            log_container = st.empty()
+            status_container = st.empty()
+            
+            try:
+                # Executar com streaming de saída
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
+                    cwd=os.getcwd()
+                )
+                
+                output_lines = []
+                
+                # Ler saída em tempo real
+                with status_container:
+                    with st.spinner("Executando experimento..."):
+                        for line in process.stdout:
+                            output_lines.append(line.rstrip())
+                            # Mostrar últimas 30 linhas
+                            display_text = "\n".join(output_lines[-30:])
+                            log_container.code(display_text, language="text")
+                
+                # Aguardar conclusão
+                process.wait()
+                
+                # Capturar stderr se houver
+                stderr_output = process.stderr.read()
+                
+                if process.returncode != 0:
+                    st.error(f"❌ Falha ao executar experimento (código {process.returncode})")
+                    if stderr_output:
+                        st.error(f"Erro:\n{stderr_output}")
+                else:
+                    st.success(f"✅ Experimento concluído com sucesso! Resultados salvos em: {out_dir_exp}/")
+                    st.balloons()
+                    
+                    # Mostrar resumo
+                    if output_lines:
+                        st.markdown("### 📊 Log Completo:")
+                        st.code("\n".join(output_lines), language="text")
+                        
+            except Exception as e:
+                st.error(f"❌ Erro ao iniciar experimento: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+            finally:
+                if tmp_file and os.path.exists(tmp_file):
+                    try:
+                        os.remove(tmp_file)
+                    except Exception:
+                        pass
 
 
 if __name__ == "__main__":
