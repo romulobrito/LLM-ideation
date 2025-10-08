@@ -1,0 +1,46 @@
+.env
+
+############################
+# Python
+############################
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+dist/
+build/
+
+############################
+# Virtualenv
+############################
+.venv/
+
+############################
+# Streamlit
+############################
+.streamlit/**
+
+############################
+# Data and local outputs
+############################
+refs_combined.txt
+ideas-exp/
+vectorstore*/
+*.npy
+*.npz
+*.csv
+*.tsv
+*.jsonl
+
+############################
+# Large/binary artifacts
+############################
+*.pdf
+*.zip
+*.pt
+*.bin

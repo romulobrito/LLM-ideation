@@ -1,0 +1,695 @@
+Caracterização da Capacidade Criativa em
+Sistemas de IA Generativa
+
+Projeto de Pós-Doutorado
+Rômulo Brito da Silva (Pós-doutorando)
+Ricardo Marcacini (Supervisor)
+
+Resumo
+
+Este projeto de pós-doutorado investiga a capacidade criativa de siste-
+mas de inteligência artificial (IA) generativa por meio da proposição e
+validação de métricas computacionais fundamentadas em teorias da
+criatividade. A pesquisa inclui revisão crítica de métricas existentes,
+desenvolvimento de novas métricas e validação experimental em dois
+cenários: sistemas sem interação humana e sistemas com simulação
+de interação humana. O escopo de análise será a geração de ideias
+para contos de ficção. Espera-se contribuir para a caracterização da
+criatividade artificial e para aplicações práticas em parceria com a
+indústria.
+
+1 Introdução
+
+A emergência dos modelos de linguagem de larga escala (LLMs) foi alicer-
+çada pela arquitetura Transformer (Vaswani et al., 2017) e pelo pré-treino
+em larga escala: o GPT-1 introduziu o pré-treino generativo seguido de
+adaptação (Radford et al., 2018); o BERT consolidou o pré-treino bidire-
+cional por mascaramento e o transfer learning multi-tarefa (Devlin et al.,
+2019); e o aumento de escala evidenciou aprendizagem multitarefa não su-
+pervisionada (GPT-2) (Radford et al., 2019), culminando com o GPT-3, que
+popularizou os “modelos de linguagem grandes” ao demonstrar few-shot
+e in-context learning (Brown et al., 2020). Estudos de leis de escala e de
+dimensionamento computacional-ótimo orientaram esse crescimento (Ka-
+plan et al., 2020; Hoffmann et al., 2022). Esses avanços resultaram em
+sistemas capazes de produzir textos, imagens e músicas de qualidade por
+vezes indistinguível da humana (Heigl, 2025). Apesar disso, a proficiência
+geracional não implica, por si, desempenho equivalente ao humano em
+resolução criativa, o que exige critérios mais finos para caracterizar criati-
+vidade computacional (Ritchie, 2007; Schmidhuber, 2010). Embora tais
+modelos demonstrem alta fidelidade estilística, há evidências de limitações
+em tarefas que demandam criatividade estruturada, tais como: (i) menor
+
+1
+
+novidade, surpresa e diversidade quando comparados a autores humanos;
+(ii) dificuldades de composicionalidade e de raciocínio abstrato/estrutural;
+(iii) incoerência de longo alcance e ocorrências de alucinação, as quais são
+discutidas desde a taxonomia/fatores causais em LLMs e LVLMs (Huang
+et al., 2024; Liu et al., 2024) até análises de por que alucinam (pressões
+de treino/avaliação que recompensam “chute” em vez de incerteza) (Kalai
+et al., 2025), argumentos de inevitabilidade sob pressupostos formais (Xu
+et al., 2024) e limites para a detecção automática (Karbasi et al., 2025);
+além disso, há debate terminológico sobre o próprio uso do termo “alucina-
+ção” em diferentes domínios (Maleki et al., 2024); e (iv) desalinhamentos
+na avaliação (LLMs e avaliadores não especialistas tendem a superesti-
+mar a criatividade de textos gerados por LLMs em relação ao juízo de
+especialistas) (Ismayilzada et al., 2025b,a).
+
+Sob a ótica de métricas propostas em escopos delimitados, os modelos
+atuais tendem a produzir respostas que estão aquém da produção criativa
+humana (Ismayilzada et al., 2025b; Haase et al., 2025). Isso levanta a
+questão sobre quais seriam os limites intrínsecos da criatividade artificial,
+e se tais limites derivam do escopo de utilização, da arquitetura dos
+modelos, dos dados e algoritmos de treinamento ou de princípios ligados
+à própria noção de criatividade.
+
+Do ponto de vista científico, ainda há lacunas fundamentais na com-
+preensão do que significa, em termos operacionais, falar em “capacidade
+criativa” de um sistema de IA generativa. A literatura frequentemente de-
+compõe criatividade em novidade, surpresa e valor (Boden, 2004; Ritchie,
+2007). Em termos computacionais, surpresa pode ser relacionada a
+baixa probabilidade (alta informação) de uma ideia condicionada ao con-
+texto (Shannon, 1948), enquanto novidade e valor demandam proxies
+que dialoguem com preferências humanas e distância semântica (Reimers
+and Gurevych, 2019). Traduzir esses princípios em métricas confiáveis e
+reprodutíveis segue como um desafio central.
+
+Neste projeto de pesquisa, propõe-se investigar, propor e experimentar
+métricas computacionais de capacidade criativa com um embasamento
+teórico sólido. Com isso, espera-se a obtenção ou justificativa de métricas
+que possam ser utilizadas no estudo de escopos criativos mais amplos,
+com menos limitações intrínsecas. A ideia é operacionalizar a criatividade
+como combinação de novidade, surpresa e valor: de forma geral, novidade
+é estimada por distância semântica em embeddings; surpresa, por infor-
+mação negativa de um modelo de linguagem condicionado ao prompt; e
+valor, por um escore aprendido de preferências humanas (modelo-juiz). As
+definições formais e o escore composto novidade, surpresa e valor (NSV)
+
+2
+
+estão detalhados na Seção 3.2.
+
+Para tal, serão conduzidas atividades como: estudo das principais
+teorias sobre criatividade; revisão crítica de métricas computacionais
+existentes sob a ótica dessas teorias; proposição e implementação de
+métricas embasadas teoricamente; validação de tais métricas em tarefas
+criativas reais.
+
+É importante mencionar que, quando nos referimos à capacidade
+criativa de sistemas de IA, estamos falando da potencial utilidade desses
+sistemas na produção de ideias criativas. Esse entendimento não demanda
+que tais ideias sejam originadas exclusivamente pelo sistema, pois há a
+possibilidade de elas serem geradas por um usuário humano assistido
+pelo sistema. Assim sendo, questões sobre a (im)possibilidade de uma
+IA conceber uma ideia verdadeiramente criativa, como as levantadas por
+Bringsjord et al. (2000), não se impõem.
+
+Este projeto está inserido em um projeto maior no escopo do programa
+MAI/DAI do CNPq, em parceria com a empresa modell.ai, que busca
+fortalecer a pesquisa e a inovação por meio da colaboração entre academia
+e indústria.
+
+2 Objetivos
+
+Este projeto de pós-doutorado tem como objetivo principal a investigação
+e desenvolvimento de métricas de capacidade criativa de um sistema de
+IA generativa que sejam computacionais, teoricamente embasadas, de
+ampla aplicação e validadas experimentalmente. Para isso, o trabalho será
+conduzido sob a perspectiva tanto de um sistema sem interação humana
+como de um que simula interação com humanos.
+
+Ao final deste projeto, o intuito é ter contribuído com a caracterização
+da capacidade criativa de sistemas de IA generativa. Em outras palavras,
+desejamos obter instrumentos para poder dizer que um sistema A tem
+capacidade criativa maior, menor ou igual em relação a um sistema B.
+
+Visando atingir esse objetivo, antecipamos os seguintes objetivos inter-
+
+mediários:
+
+• A partir de arcabouços teóricos, eleger os critérios desejados para
+possíveis métricas de avaliação de capacidade criativa de sistemas
+de IA generativa;
+
+• Revisar criticamente métricas já propostas, destacando as que pos-
+
+suem, total ou parcialmente, os critérios desejados;
+
+3
+
+• Proposição e implementação de métricas que seguem totalmente os
+
+critérios estabelecidos;
+
+• Validação experimental das métricas em sistemas de IA generativa
+
+sem interação humana;
+
+• Validação experimental das métricas em sistemas de IA generativa
+
+com simulação de interação humana.
+
+A validação experimental é central. Para evitar circularidade, distin-
+guiremos: (i) um subconjunto com avaliação humana direta (banca)
+usado como referência independente, com aferição de confiabilidade in-
+teravaliadores (e.g., alfa de Krippendorff) (Krippendorff, 2011); e (ii) um
+modelo-juiz treinado em preferências humanas para ampliar cobertura,
+sem substituir o julgamento humano no hold-out. Também manteremos
+provedores distintos para extração de ideias, geração e julgamento.
+
+Na validação com simulação de interação (Seção 2.1), diremos que um
+sistema A supera B quando A produz, com frequência significativamente
+maior, ideias cujo escore NSV esteja no quantil superior (e.g., ≥ P 95)
+da distribuição humana, sob restrições de coerência. Compararemos
+taxas de acerto por iteração de feedback e o ganho médio ∆NSV. Para isso,
+antecipamos adicionalmente os seguintes objetivos intermediários:
+
+• Construir bases de dados de ideias de referência com produções que
+passam por barreiras de qualidade criativa indo das menos exigentes
+(menos barreiras de seleção) até as mais exigentes (seleção bastante
+criteriosa);
+
+• Propor e implementar algoritmo que permita simular feedback hu-
+
+mano à IA tendo uma ideia de referência como base.
+
+Na validação sem interação humana, assumiremos que um sistema A
+tem maior capacidade criativa que um sistema B quando as produções
+de A forem melhor avaliadas pelo modelo-juiz treinado em preferências
+humanas (conforme definido anteriormente). Para isso, antecipamos
+adicionalmente os seguintes objetivos intermediários:
+
+• Propor, implementar e avaliar modelo que consegue aprender pa-
+drões que distinguem as produções que humanos julgam de maior
+qualidade criativa.
+
+2.1 Simulação de feedback humano
+
+A simulação de feedback aplicará operadores dirigidos (e.g., “aumente
+surpresa sem perder coerência”, “altere perspectiva do protagonista”), com
+
+4
+
+checklists de coerência para evitar regressões. Mediremos a evolução do
+NSV ao longo das iterações e a proporção de ideias que cruzam o patamar
+criativo.
+
+Definições operacionais e hipóteses
+
+Definimos um patamar criativo como o conjunto de ideias cujo escore
+composto (Seção 3.2) esteja no quantil superior (e.g., ≥ P 95) de uma
+distribuição de referência humana, sujeito a critérios mínimos de coerência
+com o prompt. Avaliaremos duas hipóteses principais:
+
+H1. O escore composto baseado em novidade, surpresa e valor (NSV)
+apresenta correlação ρ ≥ 0,6 (Spearman) com preferências humanas em
+conjuntos de validação mantidos em hold-out.
+
+H2. Na simulação de feedback humano (Seção 2.1), a proporção de
+ideias acima do patamar criativo aumenta significativamente em relação
+ao cenário sem interação.
+
+Como proxy escalável para preferências humanas utilizaremos um
+modelo-juiz treinado a partir de comparações pareadas (pairwise) anotadas
+por humanos (Ziegler et al., 2019; Ouyang et al., 2022), mantendo um
+subconjunto com avaliação humana direta para aferição independente.
+
+3 Metodologia
+
+3.1 Escopo
+
+Os objetivos propostos serão perseguidos no escopo de uma tarefa criativa
+específica: a geração de ideias para embasar contos de ficção. Note que a
+proposta não é gerar os contos em si, pois isso envolveria diversas outras
+tarefas criativas.
+
+Estes são os motivos pelos quais julgamos essa tarefa específica como
+
+adequada para este projeto:
+
+• A tarefa criativa de geração de ideias é de aplicação abrangente, não
+
+se restringindo ao domínio de escrita criativa;
+
+• Há exemplos públicos, numerosos e facilmente coletáveis de contos
+criados em resposta a prompts de escrita, viabilizando a geração de
+bases de validação experimental;
+
+• Os prompts de escrita a que nos referimos no item anterior confi-
+guram exemplos de tarefas criativas abertas, cuja resposta/solução
+não tem um gabarito;
+
+5
+
+• É possível encontrar contos na web com variados graus de qualidade
+
+e distinção criativa;
+
+• Há uma proximidade entre geração de ideias para escrita criativa e
+os domínios de interesse comercial da empresa modell.ai, parceira
+deste projeto.
+
+3.2 Métricas propostas e escore composto
+
+Nesta seção definimos três componentes — Novidade, Surpresa e Valor
+— e um escore composto (NSV) que os combina. O “NSV” não é uma
+métrica canônica; adotamos a sigla como notação para o nosso escore
+composto baseado nas dimensões consagradas de novidade, surpresa e
+valor (Boden, 2004; Ritchie, 2007). Ver também procedimentos gerais de
+avaliação de criatividade (Jordanous, 2012).
+
+Notação e conjuntos de referência. Seja x a ideia avaliada e p o prompt
+associado. Consideramos dois conjuntos de comparação: Rglob (corpus
+global) e Rp (itens do mesmo prompt/tarefa). Seja f (·) um embedding
+sentencial (e.g., SBERT (Reimers and Gurevych, 2019)).
+
+Novidade. Medimos o quão distante semanticamente x está de ideias co-
+nhecidas, combinando vizinhanças condicionada e global. Seja d a média
+das distâncias (cosseno ou Euclidiana) aos k vizinhos mais próximos:
+
+Nov(x) = α · d(cid:0)f (x), kNN(x; Rp)(cid:1) + (1 − α) · d(cid:0)f (x), kNN(x; Rglob)(cid:1),
+
+(1)
+
+com α ∈ [0, 1] (padrão α=0,5) e k ∈ {10, 25} (análise de sensibilidade em
+ambos).
+
+Surpresa. Estimamos o quão improvável é a formulação de x dado p
+usando um modelo de linguagem (LM) causal fixo ao longo do experi-
+mento (mesmo vocabulário/tokenização). Definimos a informação média
+por token como:
+
+Sup(x | p) = −
+
+1
+|x|
+
+|x|
+(cid:88)
+
+t=1
+
+log Pθ(xt | x<t, p) ,
+
+(2)
+
+controlando o efeito de comprimento pela normalização por token (Shan-
+non, 1948).
+
+6
+
+Valor (preferência humana). Modelamos utilidade/qualidade narrativa
+via um escore g(x, p) ∈ [0, 1] aprendido a partir de comparações pareadas
+humano→humano/LLM (reward modeling (Ziegler et al., 2019; Ouyang
+et al., 2022)). Otimizamos a perda logística pareada (equivalente a Bradley–
+Terry):
+
+Lpair = −
+
+(cid:88)
+
+log σ(cid:0)g(x+, p) − g(x−, p)(cid:1),
+
+(3)
+
+(x+,x−)
+
+onde σ é a sigmoide; calibramos probabilidades com temperature sca-
+ling (Guo et al., 2017) e avaliamos g por AUC em hold-out e correlação de
+Spearman com notas humanas agregadas.
+
+Normalização robusta. Para mitigar outliers, normalizamos cada com-
+ponente r ∈ {Nov, Sup, g} por mediana/MAD:
+
+zr(x) =
+
+r(x) − median(r)
+MAD(r)
+
+.
+
+(4)
+
+Escore composto (NSV). Combinamos os componentes normalizados
+com pesos não negativos e soma unitária:
+
+NSV(x, p) = wN zNov(x) + wS zSup(x | p) + wV zg(x, p),
+
+wN , wS, wV ≥ 0,
+
+wN + wS + wV = 1,
+
+(5)
+
+(6)
+
+onde w = (wN , wS, wV ) ∈ ∆(3) é ajustado em conjunto de desenvolvimento
+para maximizar a concordância com preferências humanas (e.g., maxi-
+mizar Spearman ρ). Definimos o simplex de probabilidade de três pesos
+como
+
+(cid:110)
+
+∆(3) =
+
+w ∈ R3
+
+≥0 : wN + wS + wV = 1
+
+(cid:111)
+.
+
+(7)
+
+Denotamos por M (·) a métrica de desempenho usada para comparar
+o método ao julgamento humano. Por padrão, adotamos a correlação de
+Spearman (ρ) entre o ranqueamento produzido pelo método e o ranquea-
+mento de referência (banca humana). Outros cenários podem empregar
+AUC (para pares preferidos) ou τ de Kendall; neste trabalho, M (·) refere-se
+a Spearman ρ, salvo indicação em contrário.
+
+Para evitar sobreajuste e interpretar o composto, variamos w dentro do
+simplex (Eq. 7) por meio de: (i) perturbações locais em torno do ótimo
+estimado; e (ii) busca em grade (grid) ampla sobre o simplex (e.g., malha
+com passo 0,05 ou amostras Dirichlet). Observamos a variação em M (·);
+se M permanece estável sob essas variações, o escore composto é robusto
+a escolhas específicas de pesos.
+
+A ablação quantifica a contribuição marginal de cada componente ao
+
+7
+
+comparar o sistema completo com versões em que um componente é
+removido (ou degradado). Seja r ∈ {Nov, Sup, g} e seja M (·) a métrica de
+desempenho (e.g., Spearman ρ com banca humana). Definimos a queda
+de desempenho referente a r como
+
+∆r = M(cid:0)NSV(cid:1) − M(cid:0)NSV \ r(cid:1),
+
+(8)
+
+onde NSV \ r indica wr=0 (com renormalização dos demais pesos) ou uma
+versão degradada de r: para Nov, usamos embeddings mais fracos; para
+Sup, substituímos o LM neural por um LM n-grama que aproxima a
+probabilidade de uma sequência por
+
+P (wT
+
+1 ) ≈
+
+T
+(cid:89)
+
+t=1
+
+P(cid:0)wt | w t−1
+
+t−n+1
+
+(cid:1),
+
+(9)
+
+estimando P (wt | h) por contagens no corpus com suavização (e.g., Kneser–
+Ney) (Jurafsky and Martin, 2009; Chen and Goodman, 1999; Kneser and
+Ney, 1995); e, para o componente de Valor (g), adotamos um juiz embara-
+lhado: mantemos a mesma arquitetura/hiperparâmetros do modelo-juiz,
+mas randomizamos as preferências nas comparações pareadas (permuta
+rótulos ou recombina pares) antes do treino, destruindo o sinal informa-
+tivo de preferência e funcionando como controle negativo do componente.
+Assim, ∆r > 0 indica que r melhora o desempenho; ∆r ≈ 0 sugere redun-
+dância; e ∆r < 0 indica que r pode ser prejudicial nas condições avaliadas.
+Estimamos a incerteza de M e de ∆r por bootstrap: reamostramos,
+com reposição, as unidades de avaliação (e.g., pares prompt–ideias) por
+B replicações (padrão B=1000) e calculamos intervalos de confiança (IC
+95%) pelos percentis (2,5%–97,5%). Para verificar se as diferenças são
+improváveis ao acaso, aplicamos testes não paramétricos adequados
+à estrutura dos dados: teste de sinal (comparações pareadas; hipótese
+nula de mediana das diferenças igual a zero) ou Mann–Whitney (amostras
+independentes; hipótese nula de distribuições equivalentes). Reportamos
+valores de p e ICs, priorizando o efeito (∆r) e sua incerteza.
+
+Todas as métricas finais (M ) e as estatísticas de ablação (∆r, ICs e
+testes) são reportadas em um conjunto hold-out: um subconjunto de
+dados não utilizado em nenhuma etapa de ajuste (nem de w, nem de
+treinamento do modelo-juiz, nem de seleção de hiperparâmetros). O
+uso de hold-out assegura que os resultados estimem desempenho de
+generalização, e não apenas ajuste aos dados de desenvolvimento.
+
+A estabilidade do método será avaliada em três frentes: (a) test–retest
+(seeds): repetimos todo o processo variando a semente aleatória (amos-
+
+8
+
+tragem/decoding, bootstrap, etc.) e medimos a variação de M (·) (média,
+desvio e IC); estabilidade sob diferentes seeds indica que os resultados
+não dependem do acaso; (b) invariância a paráfrases leves: aplicamos
+pequenas paráfrases nas ideias (sinônimos, ordem de frases) e verificamos
+se o ranqueamento/métricas preservam-se (e.g., alta correlação de Spear-
+man/Kendall antes vs. depois); (c) robustez a hiperparâmetros e ao LM de
+surpresa: variamos k (número de vizinhos), α (peso entre referência global
+e por prompt) e o próprio LM usado em Surpresa; a manutenção de M (·)
+dentro de faixas estreitas sugere robustez do método.
+
+(ii) Validade. Primeiro aferimos confiabilidade da banca humana (e.g.,
+alfa de Krippendorff) para garantir um padrão-ouro consistente (Krip-
+pendorff, 2011). Em seguida, mensuramos validade convergente pela
+concordância entre o método e os julgamentos humanos (correlação de
+Spearman ρ, top-k precisão, etc.), sempre com intervalos de confiança
+via bootstrap (reamostragem com reposição das unidades de avaliação; IC
+95% por percentis). Para verificar se diferenças observadas são imprová-
+veis ao acaso, aplicamos testes não paramétricos apropriados: Wilcoxon
+signed-rank ou sign test quando há pareamento por prompt/tarefa, e
+Mann–Whitney quando as amostras são independentes; reportamos valo-
+res de p junto dos efeitos e ICs. Todas as análises de validade são feitas
+em conjunto hold-out.
+
+Baselines. Diversidade lexical (Distinct-1/2) (Li et al., 2016); novelty
+search (Lehman and Stanley, 2011); e MAUVE para divergência distribuição-
+para-distribuição entre textos gerados e humanos (Pillutla et al., 2021).
+Também reportamos cada componente isolado (ablação) para aferir contri-
+buições relativas.
+
+3.3 Bases de Dados
+
+Utilizaremos fontes públicas com prompts e contos, em especial o Re-
+edsyPrompts (com curadoria e premiações semanais) e o WritingPrompts
+do Reddit, amplamente empregado em pesquisas de geração de histó-
+rias (Fan et al., 2018). As interações do público (comentários/reações)
+serão registradas como sinais auxiliares.
+
+Após a coleta, aplicaremos critérios de inclusão/exclusão e mitigações
+realistas: detecção de plágio/duplicação (deduplicação semântica), con-
+trole de popularidade/antiguidade e checagens de similaridade contra
+corpora de referência. Para prompts e produções públicas, além de Re-
+edsy, consideraremos o WritingPrompts do Reddit, amplamente utilizado
+em pesquisa de geração de histórias (Fan et al., 2018). Documentare-
+
+9
+
+mos explicitamente as limitações de possível sobreposição com dados de
+treinamento de LLMs.
+
+Em seguida, extrairemos a ideia principal de cada conto usando os
+modelos de IA generativa. Faremos isso de tal modo a obter extrações de
+tamanhos distintos (exemplo: 50, 150 e 250 palavras). Essas extrações
+e os respectivos prompts comporão a base de ideias de referência, cada
+uma junto com outros dados relevantes, tais como número de reações
+positivas, recebimento de premiação, entre outros.
+
+Para cada prompt de escrita e cada sistema de IA generativa que fará
+parte da validação experimental, instruiremos o sistema a gerar um grande
+número de exemplos de ideias principais que poderiam ser utilizadas para
+escrever um conto baseado no prompt. Ao fazer isso, teremos o cuidado
+de usar modelos com magnitudes de parâmetros distintas, de diferentes
+provedores e com diferentes valores de parâmetros de temperatura.
+
+As atividades de criação de base serão realizadas de maneira que não
+haja a introdução de artefatos alheios à capacidade criativa que possam
+distinguir as ideias utilizadas pelos escritores das ideias criadas por IA.
+
+Ao longo da criação da base, manteremos logs de coleta, scripts repro-
+dutíveis e cartões de dados (datasheets) (Gebru et al., 2021) para possível
+disponibilização pública (respeitando termos de uso), favorecendo uma
+contribuição independente e reprodutível do repositório.
+
+4 Considerações Finais
+
+A implementação será conduzida no Laboratório de Inteligência Compu-
+tacional (LABIC), com recursos de GPU locais e, quando pertinente, da
+empresa modell.ai. Manteremos separação de provedores para extração,
+geração e julgamento, documentação explícita de riscos e limites do estudo,
+e relatório de ética e uso de dados (licenças, termos de uso e privacidade).
+Embora o foco seja ideação para contos, planejamos um teste exploratório
+de generalização para outro domínio de ideação textual (e.g., conceitos de
+produtos), visando avaliar a portabilidade das métricas.
+
+Com a finalização do projeto, esperamos contribuir para a caracteri-
+zação mensurável da capacidade criativa de sistemas de IA generativa,
+oferecendo métricas reprodutíveis, código aberto e evidências de validade
+alinhadas a preferências humanas, com potencial impacto científico e
+industrial.
+
+10
+
+Referências
+
+Boden, M. A. (2004). The creative mind: Myths and mechanisms. Routledge,
+
+London, 2nd edition.
+
+Bringsjord, S., Bello, P., and Ferrucci, D. (2000). Creativity, the Turing
+
+test, and the (better) Lovelace test. Minds and Machines.
+
+Brown, T. B., Mann, B., Ryder, N., and et al. (2020). Language models are
+few-shot learners. In Advances in Neural Information Processing Systems
+(NeurIPS).
+
+Chen, S. F. and Goodman, J. (1999). An empirical study of smoothing tech-
+niques for language modeling. Computer Speech & Language, 13(4):359–
+394.
+
+Devlin, J., Chang, M.-W., Lee, K., and Toutanova, K. (2019). Bert: Pre-
+training of deep bidirectional transformers for language understanding.
+In Proceedings of NAACL.
+
+Fan, A., Lewis, M., and Dauphin, Y. (2018). Hierarchical neural story
+generation. In Proceedings of the 56th Annual Meeting of the Association
+for Computational Linguistics (ACL).
+
+Gebru, T., Morgenstern, J., Vecchione, B., Vaughan, J. W., Wallach,
+H., Daumé III, H., and Crawford, K. (2021). Datasheets for datasets.
+Communications of the ACM, 64(12):86–92.
+
+Guo, C., Pleiss, G., Sun, Y., and Weinberger, K. Q. (2017). On calibration
+
+of modern neural networks. In Proceedings of ICML.
+
+Haase, J., Hanel, P. H. P., and Pokutta, S. (2025). Has the creativity of
+large-language models peaked? an analysis of inter- and intra-LLM
+variability. arXiv preprint arXiv:2504.12320.
+
+Heigl, R. (2025). Generative artificial intelligence in creative contexts: a
+systematic review and future research agenda. Management Review
+Quarterly.
+
+Hoffmann, J., Borgeaud, S., Mensch, A., and et al. (2022). Trai-
+arXiv preprint ar-
+
+large language models.
+
+ning compute-optimal
+Xiv:2203.15556.
+
+Huang, L., Yu, W., Ma, W., Zhong, W., Feng, Z., Wang, H., Chen, Q., Peng,
+W., Feng, X., Qin, B., and Liu, T. (2024). A survey on hallucination
+in large language models: Principles, taxonomy, challenges, and open
+questions. arXiv preprint arXiv:2311.05232. Accepted by ACM TOIS.
+
+11
+
+Ismayilzada, M., Paul, D., Bosselut, A., and van der Plas, L. (2025a). Crea-
+tivity in AI: Progresses and challenges. arXiv preprint arXiv:2410.17218.
+
+Ismayilzada, M., Stevenson, C., and van der Plas, L. (2025b). Evaluating
+creative short story generation in humans and large language models.
+In Proceedings of the 16th International Conference on Computational
+Creativity (ICCC’25). Association for Computational Creativity.
+
+Jordanous, A. (2012). A standardised procedure for evaluating creative
+
+systems: Specs. Cognitive Computation, 4(3):246–279.
+
+Jurafsky, D. and Martin, J. H. (2009). Speech and Language Processing.
+
+Prentice Hall, 2 edition.
+
+Kalai, A. T., Nachum, O., Vempala, S. S., and Zhang, E. (2025). Why
+
+language models hallucinate. arXiv preprint arXiv:2509.04664.
+
+Kaplan, J., McCandlish, S., Henighan, T., and et al. (2020). Scaling laws
+
+for neural language models. arXiv preprint arXiv:2001.08361.
+
+Karbasi, A., Montasser, O., Sous, J., and Velegkas, G.
+
+(2025).
+(im)possibility of automated hallucination detection in large language
+models. arXiv preprint arXiv:2504.17004.
+
+Kneser, R. and Ney, H. (1995). Improved backing-off for n-gram language
+
+modeling. In Proceedings of ICASSP, pages 181–184.
+
+Krippendorff, K. (2011). Computing krippendorff’s alpha-reliability. De-
+
+partmental Papers (ASC), University of Pennsylvania.
+
+Lehman, J. and Stanley, K. O. (2011). Abandoning objectives: Evolu-
+tion through the search for novelty alone. Evolutionary Computation,
+19(2):189–223.
+
+Li, J., Galley, M., Brockett, C., Gao, J., and Dolan, B. (2016). A diversity-
+promoting objective function for neural conversation models. In Procee-
+dings of NAACL-HLT.
+
+Liu, H., Xue, W., Chen, Y., Chen, D., Zhao, X., Wang, K., Hou, L., Li, R.,
+and Peng, W. (2024). A survey on hallucination in large vision-language
+models. arXiv preprint arXiv:2402.00253.
+
+Maleki, N., Padmanabhan, B., and Dutta, K. (2024). Ai hallucinations: A
+
+misnomer worth clarifying. arXiv preprint arXiv:2401.06796.
+
+Ouyang, L. et al. (2022). Training language models to follow instructions
+
+with human feedback. arXiv preprint arXiv:2203.02155.
+
+12
+
+Pillutla, K., Braverman, V., Liang, P., and Kakade, S. (2021). MAUVE:
+Measuring the gap between neural text and human text via divergence
+frontiers. In Advances in Neural Information Processing Systems (Neu-
+rIPS).
+
+Radford, A., Narasimhan, K., Salimans, T., and Sutskever, I. (2018).
+Improving language understanding by generative pre-training. OpenAI
+Technical Report.
+
+Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., and Sutskever, I.
+(2019). Language models are unsupervised multitask learners. OpenAI
+Technical Report.
+
+Reimers, N. and Gurevych, I. (2019). Sentence-bert: Sentence embeddings
+
+using siamese bert-networks. In Proceedings of EMNLP.
+
+Ritchie, G. (2007). Some empirical criteria for attributing creativity to a
+
+computer program. Minds and Machines, 17(1):67–99.
+
+Schmidhuber, J. (2010). Formal theory of creativity, fun, and intrin-
+sic motivation (1990–2010). IEEE Transactions on Autonomous Mental
+Development, 2(3):230–247.
+
+Shannon, C. E. (1948). A mathematical theory of communication. Bell
+
+System Technical Journal, 27:379–423.
+
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez,
+A. N., Kaiser, Ł., and Polosukhin, I. (2017). Attention is all you need.
+Advances in neural information processing systems, 30.
+
+Xu, Z., Jain, S., and Kankanhalli, M. (2024). Hallucination is inevi-
+table: An innate limitation of large language models. arXiv preprint
+arXiv:2401.11817.
+
+Ziegler, D. M., Stiennon, N., Wu, J., Brown, T. B., Radford, A., Amodei, D.,
+Christiano, P., and Irving, G. (2019). Fine-tuning language models from
+human preferences. arXiv preprint arXiv:1909.08593.
+
+13
+
+
