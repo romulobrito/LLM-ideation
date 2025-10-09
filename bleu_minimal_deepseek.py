@@ -423,9 +423,15 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
 
         # Optional reasoning body for models that support it (e.g., gpt-5)
         # Nota: OpenAI direta pode nao suportar extra_body, entao so adiciona se for OpenRouter
+        # IMPORTANTE: exclude=False para receber o content apos o reasoning
         extra_body = None
         if reasoning_effort and use_openrouter:
-            extra_body = {"reasoning": {"effort": reasoning_effort}}
+            extra_body = {
+                "reasoning": {
+                    "effort": reasoning_effort,
+                    "exclude": False  # Necessario para GPT-5 retornar content
+                }
+            }
 
         # Criar parametros da chamada
         call_params = {
@@ -444,11 +450,14 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
         if not getattr(resp, "choices", None) or len(resp.choices) == 0:
             raise RuntimeError("Resposta sem choices do modelo.")
         msg = getattr(resp.choices[0], "message", None)
-        # 1) content como string direto
+        
+        # Para GPT-5 com reasoning: priorizar content, depois reasoning (texto)
         if msg is not None:
+            # 1) content como string direto (PRIORIDADE para GPT-5 com exclude=False)
             c = getattr(msg, "content", None)
             if isinstance(c, str) and c.strip():
                 return c.strip()
+            
             # 2) content como lista de partes multimodais
             if isinstance(c, list):
                 texts = []
@@ -460,13 +469,19 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
                 joined = " ".join(texts).strip()
                 if joined:
                     return joined
-            # 3) alguns provedores colocam texto em campo reasoning
+            
+            # 3) reasoning como string (GPT-5 com exclude=False pode retornar aqui)
             r = getattr(msg, "reasoning", None)
+            if isinstance(r, str) and r.strip():
+                return r.strip()
+            
+            # 4) reasoning como dict (alguns provedores)
             if isinstance(r, dict):
                 rt = r.get("content") or r.get("text")
                 if isinstance(rt, str) and rt.strip():
                     return rt.strip()
-        # 4) fallback: campo output_text (nem todos possuem)
+        
+        # 5) fallback: campo output_text (nem todos possuem)
         ot = getattr(resp, "output_text", None)
         if isinstance(ot, str) and ot.strip():
             return ot.strip()

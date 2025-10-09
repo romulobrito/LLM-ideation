@@ -191,24 +191,31 @@ def run_for_reference(ref_text: str, ref_id: int, embedder, cfg: IterConfig) -> 
     out_base = cfg.out_dir / f"ref_{ref_id:03d}"
     out_base.mkdir(parents=True, exist_ok=True)
     log_path = out_base / "log.csv"
-    is_new = not log_path.exists()
+    
+    # IMPORTANTE: Sempre sobrescrever o log para evitar duplicatas
+    # Se o arquivo existe, remover para começar do zero
+    if log_path.exists():
+        log_path.unlink()
+        print(f"    Log anterior removido: {log_path}")
+    
     # embed da referencia
-    print(f"  🧠 Gerando embedding da referencia...")
+    print(f"   Gerando embedding da referencia...")
     r_vec = embed_texts(embedder, [ref_text])[0]
-    print(f"  ✓ Embedding gerado")
+    print(f"   Embedding gerado")
 
     best = float("inf")
     no_improve = 0
     
-    print(f"  🚀 Iniciando ciclo iterativo (max {cfg.max_iters} iteracoes)...")
+    print(f"   Iniciando ciclo iterativo (max {cfg.max_iters} iteracoes)...")
 
-    with log_path.open("a", newline="", encoding="utf-8") as lf:
+    # Usar modo "w" (write) para criar arquivo novo
+    with log_path.open("w", newline="", encoding="utf-8") as lf:
         w = csv.writer(lf)
-        if is_new:
-            w.writerow([
-                "iter", "cand_id", "dist", "chosen_A", "dmin_so_far",
-                "model", "temperature", "reasoning", "max_tokens", "files"
-            ])
+        # Sempre escrever o header (arquivo novo)
+        w.writerow([
+            "iter", "cand_id", "dist", "chosen_A", "dmin_so_far",
+            "model", "temperature", "reasoning", "max_tokens", "files"
+        ])
 
         # iteracao 1
         txt = call_deepseek(
@@ -237,7 +244,7 @@ def run_for_reference(ref_text: str, ref_id: int, embedder, cfg: IterConfig) -> 
         w.writerow([1, 1, f"{d1:.6f}", 1 if A_idx == 1 else 0, f"{best:.6f}", cfg.model_id, cfg.temperature, cfg.reasoning or "", cfg.max_tokens, str(iter_dir / "1.txt")])
         w.writerow([1, 2, f"{d2:.6f}", 1 if A_idx == 2 else 0, f"{best:.6f}", cfg.model_id, cfg.temperature, cfg.reasoning or "", cfg.max_tokens, str(iter_dir / "2.txt")])
         
-        print(f"  ✓ Iteracao 1: dist_1={d1:.4f}, dist_2={d2:.4f} → melhor: ideia {A_idx} (dist={best:.4f})")
+        print(f"   Iteracao 1: dist_1={d1:.4f}, dist_2={d2:.4f} → melhor: ideia {A_idx} (dist={best:.4f})")
 
         # loop
         for k in range(2, cfg.max_iters + 1):
@@ -277,7 +284,7 @@ def run_for_reference(ref_text: str, ref_id: int, embedder, cfg: IterConfig) -> 
             w.writerow([k, 2, f"{d2:.6f}", 1 if best_current_idx == 2 else 0, f"{best:.6f}", cfg.model_id, cfg.temperature, cfg.reasoning or "", cfg.max_tokens, str(iter_dir / "2.txt")])
             
             # Imprimir progresso
-            melhoria = "✓" if best < best_prev else "="
+            melhoria = "" if best < best_prev else "="
             print(f"  {melhoria} Iteracao {k}: dist_1={d1:.4f}, dist_2={d2:.4f} → melhor: ideia {best_current_idx} (dist={best:.4f}, no_improve={no_improve})")
 
             # Atualizar A apenas se a melhor atual for melhor que a melhor historica
@@ -295,10 +302,10 @@ def run_for_reference(ref_text: str, ref_id: int, embedder, cfg: IterConfig) -> 
             else:
                 no_improve += 1
             if no_improve >= cfg.patience:
-                print(f"  ⏸️  Early stop: sem melhora significativa por {cfg.patience} iteracoes")
+                print(f"    Early stop: sem melhora significativa por {cfg.patience} iteracoes")
                 break
         
-        print(f"  ✅ Concluido: {k} iteracoes, melhor distancia final: {best:.4f}")
+        print(f"   Concluido: {k} iteracoes, melhor distancia final: {best:.4f}")
 
 
 def _load_env_robusto() -> None:
@@ -334,20 +341,20 @@ def main() -> None:
     args = ap.parse_args()
 
     print("=" * 80)
-    print("🧪 EXPERIMENTO ITERATIVO - INICIANDO")
+    print(" EXPERIMENTO ITERATIVO - INICIANDO")
     print("=" * 80)
-    print(f"📁 Arquivo de referencias: {args.refs_path}")
-    print(f"📂 Diretorio de saida: {args.out_dir}")
-    print(f"🤖 Modelo LLM: {args.model}")
-    print(f"🌡️  Temperatura: {args.temperature}")
-    print(f"📝 Max tokens: {args.max_tokens}")
-    print(f"🔢 Max iteracoes: {args.max_iters}")
-    print(f"⏸️  Paciencia (early stop): {args.patience}")
-    print(f"📊 Delta minimo: {args.delta}")
-    print(f"🧠 Embedder: {args.embedder}")
-    print(f"💻 Device: {args.device}")
+    print(f" Arquivo de referencias: {args.refs_path}")
+    print(f" Diretorio de saida: {args.out_dir}")
+    print(f" Modelo LLM: {args.model}")
+    print(f"  Temperatura: {args.temperature}")
+    print(f" Max tokens: {args.max_tokens}")
+    print(f" Max iteracoes: {args.max_iters}")
+    print(f"  Paciencia (early stop): {args.patience}")
+    print(f" Delta minimo: {args.delta}")
+    print(f" Embedder: {args.embedder}")
+    print(f" Device: {args.device}")
     if args.reasoning and args.reasoning != "None":
-        print(f"🤔 Reasoning: {args.reasoning}")
+        print(f" Reasoning: {args.reasoning}")
     print("=" * 80)
     print()
     
@@ -355,19 +362,19 @@ def main() -> None:
     out_path = Path(args.out_dir)
     if args.clean and out_path.exists():
         import shutil
-        print(f"🗑️  Limpando diretorio de saida: {out_path}")
+        print(f"  Limpando diretorio de saida: {out_path}")
         try:
             shutil.rmtree(out_path)
-            print(f"✅ Diretorio {out_path} removido com sucesso")
+            print(f" Diretorio {out_path} removido com sucesso")
         except Exception as e:
-            print(f"⚠️  Aviso: Nao foi possivel remover completamente {out_path}: {e}")
+            print(f"  Aviso: Nao foi possivel remover completamente {out_path}: {e}")
         print()
     
     refs = load_references_from_fs(args.refs_path)
     if not refs:
         raise SystemExit("Sem referencias no caminho informado.")
     
-    print(f"✅ Carregadas {len(refs)} referencias")
+    print(f" Carregadas {len(refs)} referencias")
     print()
 
     device = None if args.device == "auto" else args.device
@@ -389,13 +396,13 @@ def main() -> None:
 
     for i, ref in enumerate(refs, start=1):
         print(f"\n{'='*80}")
-        print(f"📄 REFERENCIA {i}/{len(refs)}")
+        print(f" REFERENCIA {i}/{len(refs)}")
         print(f"{'='*80}")
         run_for_reference(ref, i, embedder, cfg)
     
     print(f"\n{'='*80}")
-    print("✅ EXPERIMENTO CONCLUIDO COM SUCESSO!")
-    print(f"📂 Resultados salvos em: {out_dir}")
+    print(" EXPERIMENTO CONCLUIDO COM SUCESSO!")
+    print(f" Resultados salvos em: {out_dir}")
     print(f"{'='*80}")
 
 

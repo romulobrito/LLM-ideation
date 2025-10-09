@@ -325,7 +325,7 @@ def main() -> None:
 
     st.set_page_config(
         page_title="Métricas de texto (BLEU/ROUGE/BERTScore)",
-        page_icon="📏",
+        page_icon="",
         layout="centered",
         initial_sidebar_state="expanded",
     )
@@ -395,7 +395,7 @@ def main() -> None:
             use_openrouter = "/" in mdl
             
             if use_openrouter:
-                st.info("🔀 Modo: OpenRouter (modelo com '/')")
+                st.info(" Modo: OpenRouter (modelo com '/')")
                 vendor = mdl.split("/", 1)[0].lower().replace("-", "_")
                 cand = ([f"OPENROUTER_API_KEY_{vendor.upper()}"] if vendor else []) + ["OPENROUTER_API_KEY"]
                 found = None
@@ -408,14 +408,14 @@ def main() -> None:
                 st.write("Variaveis candidatas:", ", ".join(cand) if cand else "OPENROUTER_API_KEY")
                 st.write("Variavel selecionada:", found or "nenhuma encontrada")
             else:
-                st.success("✅ Modo: OpenAI Direta (modelo sem '/')")
+                st.success(" Modo: OpenAI Direta (modelo sem '/')")
                 openai_key = os.getenv("OPENAI_API_KEY", "")
                 st.write("Modelo:", mdl or "(vazio)")
                 st.write("Variavel usada: OPENAI_API_KEY")
-                st.write("Status:", "✅ Definida" if openai_key else "❌ Nao encontrada")
+                st.write("Status:", " Definida" if openai_key else " Nao encontrada")
             
             if api_key_override.strip():
-                st.info("🔑 Override ativo: uma chave fornecida na UI sera usada nesta chamada.")
+                st.info(" Override ativo: uma chave fornecida na UI sera usada nesta chamada.")
 
         st.divider()
         st.subheader("Fonte das Referências")
@@ -809,8 +809,8 @@ def main() -> None:
 
     # ===================== Modo Experimento (batch) =====================
     st.markdown("---")
-    st.markdown("## 🧪 Experimento Iterativo (Batch)")
-    with st.expander("⚙️ Configurações e Execução do Experimento", expanded=True):
+    st.markdown("##  Experimento Iterativo (Batch)")
+    with st.expander(" Configurações e Execução do Experimento", expanded=True):
         st.caption("Executa o ciclo iterativo: gera 2 ideias, mede distancias, realimenta com feedback A/B e repete.")
         out_dir_exp = st.text_input("Pasta de saída", value="exp_out", help="Os resultados por referência serão salvos aqui")
         embedder_exp = st.text_input("Modelo de embeddings (ST)", value="all-MiniLM-L6-v2")
@@ -874,7 +874,7 @@ def main() -> None:
                 "--patience", str(int(patience_exp)),
                 "--delta", str(float(delta_exp)),
             ]
-            st.info("🚀 Iniciando experimento... Acompanhe o progresso abaixo:")
+            st.info(" Iniciando experimento... Acompanhe o progresso abaixo:")
             
             # Container para logs em tempo real
             log_container = st.empty()
@@ -910,20 +910,20 @@ def main() -> None:
                 stderr_output = process.stderr.read()
                 
                 if process.returncode != 0:
-                    st.error(f"❌ Falha ao executar experimento (código {process.returncode})")
+                    st.error(f" Falha ao executar experimento (código {process.returncode})")
                     if stderr_output:
                         st.error(f"Erro:\n{stderr_output}")
                 else:
-                    st.success(f"✅ Experimento concluído com sucesso! Resultados salvos em: {out_dir_exp}/")
+                    st.success(f" Experimento concluído com sucesso! Resultados salvos em: {out_dir_exp}/")
                     st.balloons()
                     
                     # Mostrar resumo
                     if output_lines:
-                        st.markdown("### 📊 Log Completo:")
+                        st.markdown("###  Log Completo:")
                         st.code("\n".join(output_lines), language="text")
                         
             except Exception as e:
-                st.error(f"❌ Erro ao iniciar experimento: {e}")
+                st.error(f" Erro ao iniciar experimento: {e}")
                 import traceback
                 st.code(traceback.format_exc())
             finally:

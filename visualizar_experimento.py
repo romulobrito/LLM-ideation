@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Visualizacao grafica dos resultados do experimento iterativo.
-Mostra distancias, embeddings e evolucao das ideias.
+Visualização gráfica dos resultados do experimento iterativo.
+Mostra distâncias, embeddings e evolução das ideias.
 """
 
 import streamlit as st
@@ -15,6 +15,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from scipy.cluster import hierarchy
+from scipy.spatial.distance import pdist, squareform
+import networkx as nx
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -26,87 +29,92 @@ except ImportError:
     UMAP_AVAILABLE = False
 
 st.set_page_config(
-    page_title="Visualizacao Experimento",
-    page_icon="📊",
+    page_title="Visualização Experimento",
+    page_icon="",
     layout="wide"
 )
 
-st.title("📊 Visualizacao do Experimento Iterativo")
-st.markdown("Analise grafica das distancias e embeddings gerados")
+st.title(" Visualização do Experimento Iterativo")
+st.markdown("Análise gráfica das distâncias e embeddings gerados")
 st.markdown("---")
 
-# Sidebar - Selecao de experimento
+# Sidebar - Seleção de experimento
 with st.sidebar:
-    st.header("⚙️ Configuracoes")
+    st.header(" Configurações")
     
     exp_dir = st.text_input(
-        "Diretorio do experimento:",
+        "Diretório do experimento:",
         value="exp_out"
     )
     
     exp_path = Path(exp_dir)
     
     if not exp_path.exists():
-        st.error(f"❌ Diretorio nao encontrado: {exp_dir}")
+        st.error(f"Diretório não encontrado: {exp_dir}")
         st.stop()
     
-    # Listar referencias disponiveis
+    # Listar referências disponíveis
     ref_dirs = sorted([d for d in exp_path.iterdir() if d.is_dir() and d.name.startswith("ref_")])
     
     if not ref_dirs:
-        st.error("❌ Nenhuma referencia encontrada")
+        st.error("Nenhuma referência encontrada")
         st.stop()
     
-    st.success(f"✅ {len(ref_dirs)} referencias encontradas")
+    st.success(f" {len(ref_dirs)} referências encontradas")
     
     ref_names = [d.name for d in ref_dirs]
     selected_ref = st.selectbox(
-        "Selecione a referencia:",
+        "Selecione a referência:",
         ref_names,
         index=0
     )
     
     st.markdown("---")
     
-    # Opcoes de visualizacao
-    st.subheader("📈 Graficos")
-    show_convergence = st.checkbox("Grafico de convergencia", value=True)
+    # Opções de visualização
+    st.subheader("Gráficos")
+    show_convergence = st.checkbox("Gráfico de convergência", value=True)
     show_embeddings_3d = st.checkbox("Embeddings 3D (PCA Interativo)", value=True)
     show_embeddings_tsne = st.checkbox("Embeddings 3D (t-SNE Interativo)", value=False)
     if UMAP_AVAILABLE:
         show_embeddings_umap = st.checkbox("Embeddings 3D (UMAP Interativo)", value=True)
     else:
         show_embeddings_umap = False
-        st.info("ℹ️ UMAP nao disponivel. Instale com: pip install umap-learn")
-    show_heatmap = st.checkbox("Heatmap de distancias", value=True)
-    show_best_worst = st.checkbox("Comparacao melhor vs pior", value=True)
+        st.info(" UMAP não disponível. Instale com: pip install umap-learn")
+    show_heatmap = st.checkbox("Heatmap de distâncias", value=True)
+    show_best_worst = st.checkbox("Comparação melhor vs pior", value=True)
+    
+    st.markdown("---")
+    st.subheader(" Grafos e Hierarquia")
+    show_dendrogram = st.checkbox("Dendrograma Hierárquico", value=True)
+    show_evolution_graph = st.checkbox("Grafo de Evolução", value=True)
 
-# Carregar dados da referencia selecionada
+# Carregar dados da referência selecionada
 ref_path = exp_path / selected_ref
 log_file = ref_path / "log.csv"
 
 if not log_file.exists():
-    st.error(f"❌ Arquivo log.csv nao encontrado em {ref_path}")
+    st.error(f"Arquivo log.csv não encontrado em {ref_path}")
     st.stop()
 
 # Ler log
 df = pd.read_csv(log_file)
 
-st.header(f"📄 Referencia: {selected_ref}")
+st.header(f" Referência: {selected_ref}")
 
-# Metricas resumidas
+# Métricas resumidas
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric("Total de iteracoes", df['iter'].max())
+    st.metric("Total de iterações", df['iter'].max())
 
 with col2:
     best_dist = df['dist'].min()
-    st.metric("Melhor distancia", f"{best_dist:.4f}")
+    st.metric("Melhor distância", f"{best_dist:.4f}")
 
 with col3:
     worst_dist = df['dist'].max()
-    st.metric("Pior distancia", f"{worst_dist:.4f}")
+    st.metric("Pior distância", f"{worst_dist:.4f}")
 
 with col4:
     improvement = ((worst_dist - best_dist) / worst_dist) * 100
@@ -118,11 +126,11 @@ st.markdown("---")
 # 1. GRAFICO DE CONVERGENCIA
 # ============================================================================
 if show_convergence:
-    st.subheader("📈 Grafico de Convergencia")
+    st.subheader("Gráfico de Convergência")
     
     fig = go.Figure()
     
-    # Agrupar por iteracao
+    # Agrupar por iteração
     for iter_num in sorted(df['iter'].unique()):
         iter_data = df[df['iter'] == iter_num]
         
@@ -142,13 +150,13 @@ if show_convergence:
                 marker=dict(size=12, color=color, symbol=symbol),
                 name=f"Iter {iter_num} - Cand {cand_id}",
                 showlegend=False,
-                hovertemplate=f"<b>Iteracao {iter_num}</b><br>" +
+                hovertemplate=f"<b>Iteração {iter_num}</b><br>" +
                               f"Candidato: {cand_id}<br>" +
-                              f"Distancia: {dist:.4f}<br>" +
+                              f"Distância: {dist:.4f}<br>" +
                               f"Status: {'Escolhido (A)' if chosen else 'Rejeitado (B)'}<extra></extra>"
             ))
     
-    # Linha da melhor distancia acumulada
+    # Linha da melhor distância acumulada
     best_so_far = df.groupby('iter')['dmin_so_far'].first()
     fig.add_trace(go.Scatter(
         x=best_so_far.index,
@@ -157,13 +165,13 @@ if show_convergence:
         line=dict(color='blue', width=2, dash='dash'),
         marker=dict(size=8, color='blue'),
         name='Melhor acumulada',
-        hovertemplate="<b>Melhor ate iter %{x}</b><br>Distancia: %{y:.4f}<extra></extra>"
+        hovertemplate="<b>Melhor até iter %{x}</b><br>Distância: %{y:.4f}<extra></extra>"
     ))
     
     fig.update_layout(
-        title="Evolucao das Distancias por Iteracao",
-        xaxis_title="Iteracao",
-        yaxis_title="Distancia Cosseno",
+        title="Evolução das Distâncias por Iteração",
+        xaxis_title="Iteração",
+        yaxis_title="Distância Cosseno",
         hovermode='closest',
         height=500,
         showlegend=True,
@@ -175,9 +183,9 @@ if show_convergence:
     # Legenda
     st.markdown("""
     **Legenda:**
-    - 🟢 **Estrela verde**: Ideia escolhida como A (melhor)
-    - 🔴 **Circulo vermelho**: Ideia rejeitada como B (pior)
-    - 🔵 **Linha azul tracejada**: Melhor distancia acumulada
+    -  **Estrela verde**: Ideia escolhida como A (melhor)
+    -  **Circulo vermelho**: Ideia rejeitada como B (pior)
+    -  **Linha azul tracejada**: Melhor distância acumulada
     """)
 
 st.markdown("---")
@@ -186,7 +194,7 @@ st.markdown("---")
 # 2. EMBEDDINGS 3D (PCA INTERATIVO)
 # ============================================================================
 if show_embeddings_3d:
-    st.subheader("🎯 Visualizacao de Embeddings (PCA 3D Interativo)")
+    st.subheader("Visualização de Embeddings (PCA 3D Interativo)")
     
     with st.spinner("Carregando embeddings..."):
         # Carregar todos os textos e gerar embeddings
@@ -208,10 +216,10 @@ if show_embeddings_3d:
             ref_text = None
             ref_file_candidates = [
                 ref_path.parent.parent / "refs_combined.txt",  # arquivo principal
-                ref_path / "referencia.txt",  # se houver arquivo especifico
+                ref_path / "referencia.txt",  # se houver arquivo específico
             ]
             
-            # Extrair numero da referencia (ex: ref_001 -> 1)
+            # Extrair número da referencia (ex: ref_001 -> 1)
             ref_num = int(selected_ref.split('_')[1])
             
             # Ler arquivo de referencias e pegar a correta
@@ -242,7 +250,7 @@ if show_embeddings_3d:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         text = f.read().strip()
                         texts.append(text)
-                        labels.append(f"Iter {iter_num} - Cand {cand_id}")
+                        labels.append(f"Iter{iter_num}-Cand{cand_id}")  # SEM ESPAÇOS para match com código de conexões
                         colors_list.append(iter_num)
                         types.append('gerada')
             
@@ -250,26 +258,26 @@ if show_embeddings_3d:
                 # Gerar embeddings
                 embeddings = embedder.encode(texts, show_progress_bar=False)
                 
-                # NORMALIZAR embeddings para que distancia euclidiana seja proporcional a cosseno
-                # Apos normalizacao: dist_euclidiana^2 = 2 * (1 - cos_similarity)
+                # NORMALIZAR embeddings para que distância euclidiana seja proporcional ao cosseno
+                # Apos normalização: dist_euclidiana^2 = 2 * (1 - cos_similarity)
                 embeddings_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
                 
-                # Calcular distancias da referencia (se existir)
+                # Calcular distâncias da referencia (se existir)
                 if ref_text:
-                    ref_embedding = embeddings_norm[0]  # primeiro embedding e a referencia
-                    gen_embeddings = embeddings_norm[1:]  # resto sao ideias geradas
+                    ref_embedding = embeddings_norm[0]  # primeiro embedding é a referência
+                    gen_embeddings = embeddings_norm[1:]  # resto são ideias geradas
                     
-                    # Distancia cosseno (como no experimento)
+                    # Distância cosseno (como no experimento)
                     cos_distances = 1 - np.dot(gen_embeddings, ref_embedding)
                     
-                    # Distancia euclidiana (apos normalizacao)
+                    # Distância euclidiana (após normalização)
                     eucl_distances = np.linalg.norm(gen_embeddings - ref_embedding, axis=1)
                     
                     # Adicionar ao DataFrame para exibir
-                    st.info(f"📊 Distancias calculadas: {len(cos_distances)} ideias vs referencia")
-                    st.write(f"**Distancia cosseno:** min={cos_distances.min():.4f}, max={cos_distances.max():.4f}, media={cos_distances.mean():.4f}")
-                    st.write(f"**Distancia euclidiana:** min={eucl_distances.min():.4f}, max={eucl_distances.max():.4f}, media={eucl_distances.mean():.4f}")
-                    st.write(f"**Relacao teorica:** dist_eucl = √(2 × dist_cos) → verificacao: {np.allclose(eucl_distances, np.sqrt(2 * cos_distances), atol=1e-5)}")
+                    st.info(f" Distâncias calculadas: {len(cos_distances)} ideias vs referencia")
+                    st.write(f"**Distância cosseno:** min={cos_distances.min():.4f}, max={cos_distances.max():.4f}, média={cos_distances.mean():.4f}")
+                    st.write(f"**Distância euclidiana:** min={eucl_distances.min():.4f}, max={eucl_distances.max():.4f}, média={eucl_distances.mean():.4f}")
+                    st.write(f"**Relação teórica:** dist_eucl = √(2 × dist_cos) → verificação: {np.allclose(eucl_distances, np.sqrt(2 * cos_distances), atol=1e-5)}")
                 
                 # Reduzir para 3D com PCA (usando embeddings normalizados)
                 pca = PCA(n_components=3)
@@ -281,7 +289,7 @@ if show_embeddings_3d:
                     'y': embeddings_3d[:, 1],
                     'z': embeddings_3d[:, 2],
                     'label': labels,
-                    'iteracao': colors_list,
+                    'iteração': colors_list,
                     'tipo': types,
                     'dist_cos': [0.0] + list(cos_distances) if ref_text else [0.0] * len(labels),
                     'dist_eucl': [0.0] + list(eucl_distances) if ref_text else [0.0] * len(labels)
@@ -312,7 +320,7 @@ if show_embeddings_3d:
                 # Adicionar ideias geradas (com gradiente de cor)
                 df_gen = df_viz[df_viz['tipo'] == 'gerada']
                 if len(df_gen) > 0:
-                    # Encontrar a melhor ideia (menor distancia cosseno)
+                    # Encontrar a melhor ideia (menor distância cosseno)
                     best_idx = df_gen['dist_cos'].idxmin()
                     best_row = df_gen.loc[best_idx]
                     
@@ -326,10 +334,16 @@ if show_embeddings_3d:
                             mode='markers',
                             marker=dict(
                                 size=6,
-                                color=df_gen_normal['iteracao'],
+                                color=df_gen_normal['iteração'],
                                 colorscale='Viridis',
                                 showscale=True,
-                                colorbar=dict(title="Iteracao"),
+                                colorbar=dict(
+                                    title="Iteração",
+                                    x=1.15,
+                                    xanchor='left',
+                                    thickness=15,
+                                    len=0.7
+                                ),
                                 symbol='circle'
                             ),
                             name='Ideias Geradas',
@@ -357,7 +371,7 @@ if show_embeddings_3d:
                         ),
                         name=f'MELHOR IDEIA (dist={best_row["dist_cos"]:.4f})',
                         text=[best_row['label']],
-                        hovertemplate="<b>🏆 MELHOR IDEIA</b><br>" +
+                        hovertemplate="<b> MELHOR IDEIA</b><br>" +
                                     "<b>%{text}</b><br>" +
                                     "PC1: %{x:.3f}<br>" +
                                     "PC2: %{y:.3f}<br>" +
@@ -382,36 +396,36 @@ if show_embeddings_3d:
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
-                st.info(f"📊 Variancia explicada: {sum(pca.explained_variance_ratio_)*100:.1f}%")
+                st.info(f" Variancia explicada: {sum(pca.explained_variance_ratio_)*100:.1f}%")
                 
                 # Legenda
                 st.markdown(f"""
                 **Legenda:**
-                - 💎 **Diamante vermelho grande**: Referencia original (alvo)
-                - 💎 **Diamante dourado**: MELHOR ideia gerada (menor distancia)
-                - 🔵 **Esferas coloridas**: Outras ideias geradas (cor = iteracao)
+                -  **Diamante vermelho grande**: Referencia original (alvo)
+                -  **Diamante dourado**: MELHOR ideia gerada (menor distância)
+                -  **Esferas coloridas**: Outras ideias geradas (cor = iteração)
                 - **Objetivo**: Ideias devem se aproximar do diamante vermelho!
                 
-                **🎮 Controles Interativos:**
+                **Controles Interativos:**
                 - **Rotacionar**: Clique e arraste
                 - **Zoom**: Scroll do mouse ou pinch
                 - **Pan**: Shift + arraste
                 - **Reset**: Duplo clique
                 
-                **✨ Vantagens do 3D:**
-                - Captura **{sum(pca.explained_variance_ratio_)*100:.1f}%** da variancia (vs ~34% em 2D)
-                - Melhor percepcao de distancias e agrupamentos
-                - Explore diferentes angulos para entender a convergencia
+                **Vantagens do 3D:**
+                - Captura **{sum(pca.explained_variance_ratio_)*100:.1f}%** da variância (vs ~34% em 2D)
+                - Melhor percepção de distâncias e agrupamentos
+                - Explore diferentes ângulos para entender a convergência
                 
-                **✨ Nota tecnica:** Embeddings foram **normalizados** antes do PCA, garantindo que a 
-                distancia euclidiana no grafico seja **proporcional** a distancia cosseno usada no experimento.
-                Use o hover para ver as distancias reais de cada ideia.
+                **Nota técnica:** Embeddings foram **normalizados** antes do PCA, garantindo que a 
+                distância euclidiana no gráfico seja **proporcional** à distância cosseno usada no experimento.
+                Use o hover para ver as distâncias reais de cada ideia.
                 """)
             else:
-                st.warning("⚠️ Nenhum texto encontrado para visualizar")
+                st.warning(" Nenhum texto encontrado para visualizar")
                 
         except Exception as e:
-            st.error(f"❌ Erro ao gerar embeddings: {e}")
+            st.error(f"Erro ao gerar embeddings: {e}")
 
 st.markdown("---")
 
@@ -419,7 +433,7 @@ st.markdown("---")
 # 3. t-SNE 3D INTERATIVO
 # ============================================================================
 if show_embeddings_tsne:
-    st.subheader("🎯 Visualizacao de Embeddings (t-SNE 3D Interativo)")
+    st.subheader("Visualização de Embeddings (t-SNE 3D Interativo)")
     
     with st.spinner("Calculando t-SNE 3D (pode demorar)..."):
         try:
@@ -433,7 +447,7 @@ if show_embeddings_tsne:
                     'y': embeddings_tsne[:, 1],
                     'z': embeddings_tsne[:, 2],
                     'label': labels,
-                    'iteracao': colors_list,
+                    'iteração': colors_list,
                     'tipo': types,
                     'dist_cos': [0.0] + list(cos_distances) if ref_text else [0.0] * len(labels),
                     'dist_eucl': [0.0] + list(eucl_distances) if ref_text else [0.0] * len(labels)
@@ -464,7 +478,7 @@ if show_embeddings_tsne:
                 # Adicionar ideias geradas
                 df_gen_tsne = df_tsne[df_tsne['tipo'] == 'gerada']
                 if len(df_gen_tsne) > 0:
-                    # Encontrar a melhor ideia (menor distancia cosseno)
+                    # Encontrar a melhor ideia (menor distância cosseno)
                     best_idx = df_gen_tsne['dist_cos'].idxmin()
                     best_row = df_gen_tsne.loc[best_idx]
                     
@@ -478,10 +492,16 @@ if show_embeddings_tsne:
                             mode='markers',
                             marker=dict(
                                 size=6,
-                                color=df_gen_normal['iteracao'],
+                                color=df_gen_normal['iteração'],
                                 colorscale='Plasma',
                                 showscale=True,
-                                colorbar=dict(title="Iteracao"),
+                                colorbar=dict(
+                                    title="Iteração",
+                                    x=1.15,
+                                    xanchor='left',
+                                    thickness=15,
+                                    len=0.7
+                                ),
                                 symbol='circle'
                             ),
                             name='Ideias Geradas',
@@ -509,7 +529,7 @@ if show_embeddings_tsne:
                         ),
                         name=f'MELHOR IDEIA (dist={best_row["dist_cos"]:.4f})',
                         text=[best_row['label']],
-                        hovertemplate="<b>🏆 MELHOR IDEIA</b><br>" +
+                        hovertemplate="<b> MELHOR IDEIA</b><br>" +
                                     "<b>%{text}</b><br>" +
                                     "t-SNE 1: %{x:.3f}<br>" +
                                     "t-SNE 2: %{y:.3f}<br>" +
@@ -537,34 +557,34 @@ if show_embeddings_tsne:
                 # Legenda
                 st.markdown("""
                 **Legenda:**
-                - 💎 **Diamante vermelho grande**: Referencia original (alvo)
-                - 💎 **Diamante dourado**: MELHOR ideia gerada (menor distancia)
-                - 🔵 **Esferas coloridas**: Outras ideias geradas (cor = iteracao)
+                -  **Diamante vermelho grande**: Referencia original (alvo)
+                -  **Diamante dourado**: MELHOR ideia gerada (menor distância)
+                -  **Esferas coloridas**: Outras ideias geradas (cor = iteração)
                 - **Objetivo**: Ideias devem se aproximar do diamante vermelho!
                 
-                **🎮 Controles Interativos:**
+                **Controles Interativos:**
                 - **Rotacionar**: Clique e arraste
                 - **Zoom**: Scroll do mouse ou pinch
                 - **Pan**: Shift + arraste
                 - **Reset**: Duplo clique
                 
-                **✨ Vantagens do t-SNE 3D:**
+                **Vantagens do t-SNE 3D:**
                 - Melhor visualização de **clusters** e agrupamentos
                 - Estrutura local preservada em 3 dimensões
                 - Identifica "famílias" de ideias similares
                 - Explore diferentes ângulos para ver padrões
                 
-                **✨ Nota tecnica:** Embeddings foram **normalizados** antes do t-SNE, garantindo que a 
-                distancia euclidiana no grafico seja **proporcional** a distancia cosseno usada no experimento.
+                **Nota técnica:** Embeddings foram **normalizados** antes do t-SNE, garantindo que a 
+                distância euclidiana no gráfico seja **proporcional** à distância cosseno usada no experimento.
                 
-                **⚠️ Importante:** t-SNE preserva estrutura **local** (clusters), não distâncias globais. 
+                **Importante:** t-SNE preserva estrutura **local** (clusters), não distâncias globais. 
                 Ideias próximas no gráfico são semanticamente similares, mas distâncias absolutas podem 
                 não refletir as distâncias reais. Use o hover para ver as distâncias verdadeiras!
                 """)
             else:
-                st.warning("⚠️ Carregue os embeddings primeiro (ative PCA)")
+                st.warning(" Carregue os embeddings primeiro (ative PCA)")
         except Exception as e:
-            st.error(f"❌ Erro ao calcular t-SNE: {e}")
+            st.error(f"Erro ao calcular t-SNE: {e}")
 
 st.markdown("---")
 
@@ -572,7 +592,7 @@ st.markdown("---")
 # 3.5. VISUALIZACAO UMAP 3D INTERATIVO
 # ============================================================================
 if show_embeddings_umap and UMAP_AVAILABLE:
-    st.subheader("🌐 Visualizacao de Embeddings (UMAP 3D Interativo)")
+    st.subheader(" Visualização de Embeddings (UMAP 3D Interativo)")
     
     with st.spinner("Calculando UMAP 3D..."):
         try:
@@ -593,7 +613,7 @@ if show_embeddings_umap and UMAP_AVAILABLE:
                     'y': embeddings_umap[:, 1],
                     'z': embeddings_umap[:, 2],
                     'label': labels,
-                    'iteracao': colors_list,
+                    'iteração': colors_list,
                     'tipo': types,
                     'dist_cos': [0.0] + list(cos_distances) if ref_text else [0.0] * len(labels),
                     'dist_eucl': [0.0] + list(eucl_distances) if ref_text else [0.0] * len(labels)
@@ -624,7 +644,7 @@ if show_embeddings_umap and UMAP_AVAILABLE:
                 # Adicionar ideias geradas
                 df_gen_umap = df_umap[df_umap['tipo'] == 'gerada']
                 if len(df_gen_umap) > 0:
-                    # Encontrar a melhor ideia (menor distancia cosseno)
+                    # Encontrar a melhor ideia (menor distância cosseno)
                     best_idx = df_gen_umap['dist_cos'].idxmin()
                     best_row = df_gen_umap.loc[best_idx]
                     
@@ -638,10 +658,16 @@ if show_embeddings_umap and UMAP_AVAILABLE:
                             mode='markers',
                             marker=dict(
                                 size=6,
-                                color=df_gen_normal['iteracao'],
+                                color=df_gen_normal['iteração'],
                                 colorscale='Viridis',
                                 showscale=True,
-                                colorbar=dict(title="Iteracao"),
+                                colorbar=dict(
+                                    title="Iteração",
+                                    x=1.15,
+                                    xanchor='left',
+                                    thickness=15,
+                                    len=0.7
+                                ),
                                 symbol='circle'
                             ),
                             name='Ideias Geradas',
@@ -669,7 +695,7 @@ if show_embeddings_umap and UMAP_AVAILABLE:
                         ),
                         name=f'MELHOR IDEIA (dist={best_row["dist_cos"]:.4f})',
                         text=[best_row['label']],
-                        hovertemplate="<b>🏆 MELHOR IDEIA</b><br>" +
+                        hovertemplate="<b> MELHOR IDEIA</b><br>" +
                                     "<b>%{text}</b><br>" +
                                     "UMAP 1: %{x:.3f}<br>" +
                                     "UMAP 2: %{y:.3f}<br>" +
@@ -697,26 +723,26 @@ if show_embeddings_umap and UMAP_AVAILABLE:
                 # Legenda
                 st.markdown("""
                 **Legenda:**
-                - 💎 **Diamante vermelho grande**: Referencia original (alvo)
-                - 💎 **Diamante dourado**: MELHOR ideia gerada (menor distancia)
-                - 🔵 **Esferas coloridas**: Outras ideias geradas (cor = iteracao)
+                -  **Diamante vermelho grande**: Referencia original (alvo)
+                -  **Diamante dourado**: MELHOR ideia gerada (menor distância)
+                -  **Esferas coloridas**: Outras ideias geradas (cor = iteração)
                 - **Objetivo**: Ideias devem se aproximar do diamante vermelho!
                 
-                **🎮 Controles Interativos:**
+                **Controles Interativos:**
                 - **Rotacionar**: Clique e arraste
                 - **Zoom**: Scroll do mouse ou pinch
                 - **Pan**: Shift + arraste
                 - **Reset**: Duplo clique
                 
-                **✨ Vantagens do UMAP 3D:**
-                - 🏆 **MELHOR DOS DOIS MUNDOS**: Preserva estrutura **local E global**
-                - ⚡ **Mais rapido** que t-SNE 3D
-                - 🎯 **Mais consistente**: Mesmo resultado sempre (determinístico)
-                - 📏 **Distancias confiaveis**: Usa metrica cosseno diretamente
-                - 🌈 **Convergencia clara**: Veja o "caminho" completo das ideias
-                - 🔍 **Mais informacao**: 3D preserva muito mais estrutura que 2D
+                **Vantagens do UMAP 3D:**
+                -  **MELHOR DOS DOIS MUNDOS**: Preserva estrutura **local E global**
+                -  **Mais rápido** que t-SNE 3D
+                - **Mais consistente**: Mesmo resultado sempre (determinístico)
+                -  **Distâncias confiáveis**: Usa métrica cosseno diretamente
+                -  **Convergência clara**: Veja o "caminho" completo das ideias
+                -  **Mais informação**: 3D preserva muito mais estrutura que 2D
                 
-                **📊 Interpretacao:** 
+                **Interpretação:** 
                 UMAP 3D é a **melhor visualização** para entender convergência! Ele mostra:
                 - **Estrutura local**: Clusters de ideias similares (como t-SNE)
                 - **Estrutura global**: Distâncias reais entre grupos (como PCA)
@@ -724,14 +750,14 @@ if show_embeddings_umap and UMAP_AVAILABLE:
                 
                 Explore diferentes ângulos para ver como as ideias se aproximam da referência!
                 
-                **✨ Nota tecnica:** Embeddings foram **normalizados** antes do UMAP, garantindo que a 
-                distancia euclidiana no grafico seja **proporcional** a distancia cosseno usada no experimento.
-                Use o hover para ver as distancias reais de cada ideia.
+                **Nota técnica:** Embeddings foram **normalizados** antes do UMAP, garantindo que a 
+                distância euclidiana no gráfico seja **proporcional** à distância cosseno usada no experimento.
+                Use o hover para ver as distâncias reais de cada ideia.
                 """)
             else:
-                st.warning("⚠️ Carregue os embeddings primeiro (ative PCA)")
+                st.warning(" Carregue os embeddings primeiro (ative PCA)")
         except Exception as e:
-            st.error(f"❌ Erro ao calcular UMAP: {e}")
+            st.error(f"Erro ao calcular UMAP: {e}")
 
 st.markdown("---")
 
@@ -739,25 +765,43 @@ st.markdown("---")
 # 4. HEATMAP DE DISTANCIAS
 # ============================================================================
 if show_heatmap:
-    st.subheader("🔥 Heatmap de Distancias")
+    st.subheader(" Heatmap de Distâncias")
     
-    # Criar matriz de distancias por iteracao e candidato
-    pivot = df.pivot(index='iter', columns='cand_id', values='dist')
-    
-    fig, ax = plt.subplots(figsize=(10, 8))
-    sns.heatmap(
-        pivot,
-        annot=True,
-        fmt='.3f',
-        cmap='RdYlGn_r',
-        cbar_kws={'label': 'Distancia Cosseno'},
-        ax=ax
-    )
-    ax.set_title('Distancias por Iteracao e Candidato')
-    ax.set_xlabel('Candidato')
-    ax.set_ylabel('Iteracao')
-    
-    st.pyplot(fig)
+    try:
+        # Criar matriz de distâncias por iteração e candidato
+        # Usar pivot_table com agregacao (mean) para lidar com duplicatas
+        pivot = df.pivot_table(
+            index='iter', 
+            columns='cand_id', 
+            values='dist',
+            aggfunc='mean'  # Se houver duplicatas, usar a média
+        )
+        
+        fig, ax = plt.subplots(figsize=(10, 8))
+        sns.heatmap(
+            pivot,
+            annot=True,
+            fmt='.3f',
+            cmap='RdYlGn_r',
+            cbar_kws={'label': 'Distância Cosseno'},
+            ax=ax
+        )
+        ax.set_title('Distâncias por Iteração e Candidato')
+        ax.set_xlabel('Candidato')
+        ax.set_ylabel('Iteração')
+        
+        st.pyplot(fig, clear_figure=True)
+        
+        st.markdown("""
+        **Legenda:**
+        -  **Verde**: Distâncias baixas (mais similar à referência)
+        -  **Amarelo**: Distâncias médias
+        -  **Vermelho**: Distâncias altas (menos similar à referência)
+        - **Objetivo**: Ver a evolução das distâncias ao longo das iterações
+        """)
+    except Exception as e:
+        st.error(f"Erro ao criar heatmap: {e}")
+        st.info(" Isso pode acontecer se houver poucas iterações ou dados inconsistentes.")
 
 st.markdown("---")
 
@@ -765,7 +809,7 @@ st.markdown("---")
 # 5. COMPARACAO MELHOR VS PIOR
 # ============================================================================
 if show_best_worst:
-    st.subheader("⚖️ Comparacao: Melhor vs Pior Ideia")
+    st.subheader(" Comparação: Melhor vs Pior Ideia")
     
     # Encontrar melhor e pior
     best_row = df.loc[df['dist'].idxmin()]
@@ -774,9 +818,9 @@ if show_best_worst:
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### 🏆 Melhor Ideia")
-        st.metric("Distancia", f"{best_row['dist']:.4f}")
-        st.metric("Iteracao", int(best_row['iter']))
+        st.markdown("###  Melhor Ideia")
+        st.metric("Distância", f"{best_row['dist']:.4f}")
+        st.metric("Iteração", int(best_row['iter']))
         st.metric("Candidato", int(best_row['cand_id']))
         
         best_file = Path(best_row['files'])
@@ -785,9 +829,9 @@ if show_best_worst:
                 st.text_area("Texto:", f.read(), height=300, key="best")
     
     with col2:
-        st.markdown("### 💔 Pior Ideia")
-        st.metric("Distancia", f"{worst_row['dist']:.4f}")
-        st.metric("Iteracao", int(worst_row['iter']))
+        st.markdown("###  Pior Ideia")
+        st.metric("Distância", f"{worst_row['dist']:.4f}")
+        st.metric("Iteração", int(worst_row['iter']))
         st.metric("Candidato", int(worst_row['cand_id']))
         
         worst_file = Path(worst_row['files'])
@@ -798,15 +842,409 @@ if show_best_worst:
 st.markdown("---")
 
 # ============================================================================
-# 6. TABELA DE DADOS
+# 6. DENDROGRAMA HIERARQUICO
 # ============================================================================
-with st.expander("📋 Ver dados completos (log.csv)"):
+if show_dendrogram:
+    st.subheader(" Dendrograma Hierárquico de Similaridade")
+    
+    with st.spinner("Calculando dendrograma..."):
+        try:
+            if len(texts) > 0 and 'embeddings_norm' in locals():
+                # Usar embeddings normalizados
+                # Calcular matriz de distâncias (cosseno)
+                dist_matrix = pdist(embeddings_norm, metric='cosine')
+                
+                # Criar linkage (metodo: average)
+                linkage_matrix = hierarchy.linkage(dist_matrix, method='average')
+                
+                # Criar figura
+                fig, ax = plt.subplots(figsize=(12, 8))
+                
+                # Criar dendrograma
+                dendrogram = hierarchy.dendrogram(
+                    linkage_matrix,
+                    labels=labels,
+                    ax=ax,
+                    orientation='right',
+                    color_threshold=0.7 * max(linkage_matrix[:, 2]),
+                    above_threshold_color='gray'
+                )
+                
+                ax.set_xlabel('Distância (Cosseno)', fontsize=12)
+                ax.set_ylabel('Ideias', fontsize=12)
+                ax.set_title('Agrupamento Hierárquico de Ideias por Similaridade', fontsize=14, fontweight='bold')
+                ax.grid(True, alpha=0.3, axis='x')
+                
+                # Colorir labels por iteração
+                labels_order = dendrogram['ivl']
+                colors_map = {}
+                for i, label in enumerate(labels):
+                    if label in labels_order:
+                        # Extrair iteração do label
+                        if 'Iter' in label:
+                            iter_num = int(label.split('Iter')[1].split('-')[0])
+                            colors_map[label] = plt.cm.viridis(iter_num / max(colors_list))
+                        else:
+                            colors_map[label] = 'red'  # Referencia
+                
+                # Aplicar cores aos labels
+                ylbls = ax.get_ymajorticklabels()
+                for lbl in ylbls:
+                    label_text = lbl.get_text()
+                    if label_text in colors_map:
+                        lbl.set_color(colors_map[label_text])
+                        if 'Ref' in label_text:
+                            lbl.set_fontweight('bold')
+                            lbl.set_fontsize(11)
+                
+                plt.tight_layout()
+                st.pyplot(fig, clear_figure=True)
+                
+                # Legenda
+                st.markdown("""
+                **Legenda:**
+                -  **Árvore hierárquica**: Mostra como ideias se agrupam por similaridade
+                -  **Eixo X (Distância)**: Quanto mais à esquerda o merge, mais similares as ideias
+                -  **Cores**: Gradiente indica a iteração (azul escuro = inicial, amarelo = final)
+                -  **Vermelho (negrito)**: Referência original
+                
+                **Interpretação:**
+                - **Clusters baixos** (merge próximo a 0): Ideias muito similares
+                - **Clusters altos** (merge longe de 0): Ideias diferentes
+                - **Referência isolada**: Indicá que as ideias ainda não convergiram completamente
+                - **Referência em cluster**: Indicá convergência bem-sucedida
+                
+                **O que procurar:**
+                - Ideias de iterações finais (amarelo) devem estar próximas da referência (vermelho)
+                - Múltiplos clusters podem indicar diferentes "caminhos" de convergência
+                - Um único cluster grande indica convergência uniforme
+                """)
+            else:
+                st.warning(" Carregue os embeddings primeiro (ative PCA ou outro embedding)")
+        except Exception as e:
+            st.error(f"Erro ao calcular dendrograma: {e}")
+
+st.markdown("---")
+
+# ============================================================================
+# 7. GRAFO DE EVOLUCAO
+# ============================================================================
+if show_evolution_graph:
+    st.subheader(" Grafo de Evolução Temporal")
+    
+    # Opções de filtro
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        max_iter_show = st.slider(
+            "Mostrar até iteração:",
+            min_value=1,
+            max_value=max(colors_list) if colors_list else 10,
+            value=min(10, max(colors_list) if colors_list else 10),
+            help="Limite de iterações para visualizar (evita poluição visual)"
+        )
+    with col2:
+        graph_height = st.slider("Altura do gráfico:", 400, 1200, 800, 100)
+    with col3:
+        show_all_edges = st.checkbox("Mostrar todas conexões", value=False, 
+                                     help="Se desmarcado, mostra apenas a melhor conexão de cada ideia")
+    
+    with st.spinner("Construindo grafo..."):
+        try:
+            if len(texts) > 0 and 'embeddings_norm' in locals():
+                # Criar grafo direcionado
+                G = nx.DiGraph()
+                
+                # Filtrar por iteração máxima
+                filtered_indices = []
+                for i, label in enumerate(labels):
+                    node_type = 'referencia' if types[i] == 'referencia' else 'gerada'
+                    iter_num = 0 if node_type == 'referencia' else colors_list[i]
+                    
+                    # Incluir referência e ideias até max_iter_show
+                    if node_type == 'referencia' or iter_num <= max_iter_show:
+                        filtered_indices.append(i)
+                
+                # Adicionar nós filtrados
+                for i in filtered_indices:
+                    label = labels[i]
+                    node_type = 'referencia' if types[i] == 'referencia' else 'gerada'
+                    iter_num = 0 if node_type == 'referencia' else colors_list[i]
+                    dist = 0.0 if node_type == 'referencia' else (cos_distances[i-1] if ref_text else 0.0)
+                    
+                    G.add_node(
+                        label,
+                        tipo=node_type,
+                        iteração=iter_num,
+                        distância=dist,
+                        pos_x=0,  # Será calculado depois
+                        pos_y=0
+                    )
+                
+                # Adicionar arestas baseadas no fluxo REAL do experimento
+                # Conectar TODAS as ideias de cada iteração à semente que as gerou
+                
+                if show_all_edges:
+                    # Modo "todas conexões": mostrar similaridade de embeddings (top-3)
+                    for iter_current in range(1, min(max_iter_show + 1, max(colors_list) + 1)):
+                        current_labels = [labels[i] for i in filtered_indices
+                                         if types[i] == 'gerada' and colors_list[i] == iter_current]
+                        
+                        if iter_current == 1:
+                            prev_labels = [labels[i] for i in filtered_indices if types[i] == 'referencia']
+                        else:
+                            prev_labels = [labels[i] for i in filtered_indices
+                                          if types[i] == 'gerada' and colors_list[i] == iter_current - 1]
+                        
+                        for curr_label in current_labels:
+                            curr_idx = labels.index(curr_label)
+                            curr_emb = embeddings_norm[curr_idx]
+                            
+                            similarities = []
+                            for prev_label in prev_labels:
+                                prev_idx = labels.index(prev_label)
+                                prev_emb = embeddings_norm[prev_idx]
+                                sim = np.dot(curr_emb, prev_emb)
+                                similarities.append((prev_label, sim))
+                            
+                            similarities.sort(key=lambda x: x[1], reverse=True)
+                            for prev_label, sim in similarities[:3]:
+                                G.add_edge(prev_label, curr_label, weight=sim)
+                else:
+                    # Modo "fluxo de geração": mostrar quem gerou quem (baseado em chosen_A)
+                    # TODAS as ideias de uma iteração vêm da ideia escolhida (chosen_A=1) da iteração anterior
+                    for iter_current in range(1, min(max_iter_show + 1, max(colors_list) + 1)):
+                        # Pegar TODAS as ideias da iteração atual
+                        current_labels = [labels[i] for i in filtered_indices
+                                         if types[i] == 'gerada' and colors_list[i] == iter_current]
+                        
+                        if iter_current == 1:
+                            # Primeira iteração: TODAS vêm da referência
+                            ref_label = [labels[i] for i in filtered_indices if types[i] == 'referencia']
+                            if ref_label:
+                                for curr_label in current_labels:
+                                    if curr_label in G.nodes():
+                                        G.add_edge(ref_label[0], curr_label, weight=1.0)
+                        else:
+                            # Iterações subsequentes: TODAS vêm da ideia escolhida (chosen_A=1) da iteração anterior
+                            prev_iter_rows = df[df['iter'] == iter_current - 1]
+                            prev_chosen = prev_iter_rows[prev_iter_rows['chosen_A'] == 1]
+                            
+                            if not prev_chosen.empty:
+                                prev_cand_id = int(prev_chosen.iloc[0]['cand_id'])
+                                prev_label = f"Iter{iter_current-1}-Cand{prev_cand_id}"
+                                
+                                # Conectar TODAS as ideias atuais à semente anterior
+                                if prev_label in G.nodes():
+                                    for curr_label in current_labels:
+                                        if curr_label in G.nodes():
+                                            G.add_edge(prev_label, curr_label, weight=1.0)
+                
+                # Layout hierárquico melhorado (por iteração, de cima para baixo)
+                pos = {}
+                y_offset = max_iter_show * 2  # Começar do topo
+                
+                for iter_num in range(max_iter_show + 1):
+                    if iter_num == 0:
+                        # Referência no topo (centralizada)
+                        ref_nodes = [n for n in G.nodes() if G.nodes[n]['tipo'] == 'referencia']
+                        for i, node in enumerate(ref_nodes):
+                            pos[node] = (0, y_offset)
+                    else:
+                        # Ideias geradas (espaçadas horizontalmente)
+                        iter_nodes = [n for n in G.nodes() if G.nodes[n]['iteração'] == iter_num]
+                        if iter_nodes:
+                            # Espaçamento horizontal baseado no número de nós
+                            total_width = max(4.0, len(iter_nodes) * 1.5)
+                            x_spacing = total_width / (len(iter_nodes) + 1)
+                            for i, node in enumerate(iter_nodes):
+                                x_pos = -total_width/2 + (i + 1) * x_spacing
+                                pos[node] = (x_pos, y_offset)
+                    
+                    y_offset -= 2  # Espaçamento vertical entre iterações
+                
+                # Criar figura com plotly - SETAS DIRECIONADAS
+                edge_trace = []
+                annotations = []
+                
+                for edge in G.edges(data=True):
+                    source, target, data = edge
+                    x0, y0 = pos[source]
+                    x1, y1 = pos[target]
+                    
+                    # Linha da aresta
+                    edge_trace.append(
+                        go.Scatter(
+                            x=[x0, x1, None],
+                            y=[y0, y1, None],
+                            mode='lines',
+                            line=dict(width=1.5, color='rgba(150,150,150,0.4)'),
+                            hoverinfo='none',
+                            showlegend=False
+                        )
+                    )
+                    
+                    # Seta direcionada (annotation)
+                    annotations.append(
+                        dict(
+                            x=x1,
+                            y=y1,
+                            ax=x0,
+                            ay=y0,
+                            xref='x',
+                            yref='y',
+                            axref='x',
+                            ayref='y',
+                            showarrow=True,
+                            arrowhead=2,
+                            arrowsize=1,
+                            arrowwidth=1.5,
+                            arrowcolor='rgba(150,150,150,0.4)',
+                            standoff=8,
+                        )
+                    )
+                
+                # Adicionar labels de iteração no lado esquerdo
+                for iter_num in range(max_iter_show + 1):
+                    iter_nodes = [n for n in G.nodes() if G.nodes[n]['iteração'] == iter_num]
+                    if iter_nodes:
+                        # Pegar a posição Y da iteração
+                        y_pos = pos[iter_nodes[0]][1]
+                        label_text = "Referência" if iter_num == 0 else f"Iteração {iter_num}"
+                        
+                        annotations.append(
+                            dict(
+                                x=-6,  # Posição à esquerda
+                                y=y_pos,
+                                text=f"<b>{label_text}</b>",
+                                showarrow=False,
+                                xref='x',
+                                yref='y',
+                                xanchor='right',
+                                font=dict(size=11, color='gray')
+                            )
+                        )
+                
+                # Nós
+                node_trace_ref = go.Scatter(
+                    x=[], y=[], mode='markers+text',
+                    marker=dict(size=20, color='red', symbol='diamond', line=dict(width=2, color='darkred')),
+                    text=[], textposition='top center', textfont=dict(size=10),
+                    name='Referencia', hovertext=[], hoverinfo='text'
+                )
+                
+                node_trace_gen = go.Scatter(
+                    x=[], y=[], mode='markers+text',
+                    marker=dict(size=[], color=[], colorscale='Viridis', showscale=True,
+                               colorbar=dict(title="Iteração", x=1.15, xanchor='left', thickness=15, len=0.7)),
+                    text=[], textposition='top center', textfont=dict(size=8),
+                    name='Ideias Geradas', hovertext=[], hoverinfo='text'
+                )
+                
+                for node in G.nodes():
+                    x, y = pos[node]
+                    node_data = G.nodes[node]
+                    
+                    if node_data['tipo'] == 'referencia':
+                        node_trace_ref['x'] += tuple([x])
+                        node_trace_ref['y'] += tuple([y])
+                        node_trace_ref['text'] += tuple([node.split('-')[0]])  # Apenas "Ref"
+                        node_trace_ref['hovertext'] += tuple([f"{node}<br>Referencia Original"])
+                    else:
+                        node_trace_gen['x'] += tuple([x])
+                        node_trace_gen['y'] += tuple([y])
+                        node_trace_gen['text'] += tuple([f"I{node_data['iteração']}-{node.split('-')[-1]}"])
+                        node_trace_gen['marker']['size'] += tuple([15])
+                        node_trace_gen['marker']['color'] += tuple([node_data['iteração']])
+                        node_trace_gen['hovertext'] += tuple([
+                            f"{node}<br>Iteração: {node_data['iteração']}<br>Distância: {node_data['distância']:.4f}"
+                        ])
+                
+                fig = go.Figure(data=edge_trace + [node_trace_ref, node_trace_gen])
+                
+                fig.update_layout(
+                    title=f'Grafo de Evolução: Fluxo Temporal de Ideias (Iterações 1-{max_iter_show})',
+                    showlegend=True,
+                    hovermode='closest',
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-8, 8]),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    height=graph_height,
+                    plot_bgcolor='white',
+                    annotations=annotations  # Adicionar setas e labels
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Legenda atualizada
+                st.markdown(f"""
+                **Legenda:**
+                -  **Diamante vermelho**: Referência original (topo)
+                -  **Círculos coloridos**: Ideias geradas (cor = iteração, azul escuro → amarelo)
+                -  **Setas direcionadas**: Fluxo de evolução temporal
+                -  **Labels laterais**: Indicam o número da iteração
+                
+                **Controles:**
+                - **Slider "Mostrar até iteração"**: Filtra visualização (evita poluição com muitas iterações)
+                - **Slider "Altura do gráfico"**: Ajusta espaçamento vertical
+                - **Checkbox "Mostrar todas conexões"**:
+                  -  **Desmarcado (RECOMENDADO)**: Mostra o **fluxo de GERAÇÃO** → cada iteração mostra TODAS as ideias geradas a partir da ideia escolhida (chosen_A=1) da iteração anterior. Visualiza claramente a "árvore de geração".
+                  -  **Marcado**: Mostra top-3 conexões por **similaridade de embeddings** (análise exploratória)
+                
+                **Interpretação (modo desmarcado - FLUXO DE GERAÇÃO):**
+                - **Estrutura em árvore**: Cada nó escolhido (chosen_A=1) gera 2 filhos na próxima iteração
+                - **Exemplo Iter 1**: Referência → gera → Iter1-Cand1 e Iter1-Cand2 (ambos conectados à referência)
+                - **Exemplo Iter 2**: Iter1-Cand2 (escolhido) → gera → Iter2-Cand1 e Iter2-Cand2 (ambos conectados ao Iter1-Cand2)
+                - **Nós "folha"**: Ideias que foram geradas mas NÃO escolhidas (não geram filhos)
+                - **Caminho principal**: Sequência de nós escolhidos (chosen_A=1) que continuam gerando
+                - **Distância no hover**: Quão próxima cada ideia está da referência original
+                
+                **Interpretação (modo marcado - SIMILARIDADE):**
+                - **Múltiplas setas**: Mostra as top-3 ideias mais similares (por embedding) da iteração anterior
+                - **Útil para**: Análise semântica, não reflete o fluxo de geração real
+                
+                **O que procurar (modo desmarcado):**
+                - **Ramificações**: Cada ideia escolhida deve ter exatamente 2 filhos (Cand1 e Cand2)
+                - **Caminho principal**: Trace a sequência de ideias escolhidas (chosen_A=1)
+                - **Ideias "mortas"**: Candidatos rejeitados aparecem como folhas (sem filhos)
+                - **Convergência**: Distâncias devem diminuir ao longo do caminho principal
+                """)
+                
+                # Estatísticas do grafo
+                st.info(f"""
+                 **Estatísticas do Grafo:**
+                - **Nós**: {G.number_of_nodes()} ({G.number_of_nodes()-1} ideias + 1 referência)
+                - **Conexões**: {G.number_of_edges()} setas
+                - **Iterações mostradas**: 1 a {max_iter_show}
+                - **Modo**: {'Top-3 conexões' if show_all_edges else 'Melhor conexão apenas'}
+                """)
+                
+                # Debug: Mostrar conexões criadas
+                if G.number_of_edges() > 0:
+                    st.success(f" {G.number_of_edges()} conexões criadas!")
+                    edges_list = list(G.edges())[:5]
+                    with st.expander(" Ver exemplo de conexões"):
+                        for src, tgt in edges_list:
+                            st.write(f"  • {src} → {tgt}")
+                else:
+                    st.error(" NENHUMA conexão criada! Verifique o log.csv")
+            else:
+                st.warning(" Carregue os embeddings primeiro (ative PCA ou outro embedding)")
+        except Exception as e:
+            st.error(f"Erro ao construir grafo: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+
+st.markdown("---")
+
+# ============================================================================
+# 8. TABELA DE DADOS
+# ============================================================================
+with st.expander(" Ver dados completos (log.csv)"):
     st.dataframe(df, use_container_width=True)
     
     # Download
     csv = df.to_csv(index=False)
     st.download_button(
-        label="💾 Baixar CSV",
+        label=" Baixar CSV",
         data=csv,
         file_name=f"{selected_ref}_log.csv",
         mime="text/csv"
@@ -816,6 +1254,6 @@ with st.expander("📋 Ver dados completos (log.csv)"):
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: gray; font-size: 0.9em;'>
-    📊 Visualizacao de Experimento Iterativo | Porta 8503
+     Visualização de Experimento Iterativo | Porta 8503
 </div>
 """, unsafe_allow_html=True)

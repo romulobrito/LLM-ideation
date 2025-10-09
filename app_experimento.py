@@ -15,7 +15,7 @@ from pathlib import Path
 # Configuração da página
 st.set_page_config(
     page_title="Experimento Iterativo LLM",
-    page_icon="🧪",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -48,14 +48,14 @@ def _load_env_robusto():
 _load_env_robusto()
 
 # Título principal
-st.title("🧪 Experimento Iterativo - Interface Dedicada")
+st.title(" Experimento Iterativo - Interface Dedicada")
 st.markdown("---")
 
 # Sidebar com configurações
 with st.sidebar:
-    st.header("⚙️ Configurações do Experimento")
+    st.header(" Configurações do Experimento")
     
-    st.subheader("📄 Referências")
+    st.subheader(" Referências")
     fonte_refs = st.radio(
         "Fonte das referências:",
         ["Arquivo", "Pasta", "Texto direto"],
@@ -83,7 +83,7 @@ with st.sidebar:
         refs_path = None
     
     st.markdown("---")
-    st.subheader("🤖 Modelo LLM")
+    st.subheader(" Modelo LLM")
     
     provider = st.selectbox(
         "Provedor:",
@@ -114,7 +114,7 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    st.subheader("🧠 Embeddings")
+    st.subheader(" Embeddings")
     
     embedder_exp = st.selectbox(
         "Modelo de embedding:",
@@ -129,7 +129,7 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    st.subheader("🔄 Iteração")
+    st.subheader(" Iteração")
     
     max_iters_exp = st.number_input(
         "Máximo de iterações:",
@@ -157,7 +157,7 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    st.subheader("📂 Saída")
+    st.subheader(" Saída")
     
     out_dir_exp = st.text_input(
         "Diretório de saída:",
@@ -165,7 +165,7 @@ with st.sidebar:
     )
     
     clean_before = st.checkbox(
-        "🗑️ Limpar diretório antes de iniciar",
+        " Limpar diretório antes de iniciar",
         value=False,
         help="Remove TODOS os arquivos do diretório de saída antes de rodar o experimento"
     )
@@ -174,7 +174,7 @@ with st.sidebar:
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.header("📊 Status do Experimento")
+    st.header("Status do Experimento")
     
     # Verificar se há chave API
     has_openai_key = bool(os.getenv("OPENAI_API_KEY"))
@@ -183,28 +183,52 @@ with col1:
     if "/" in model_name:
         can_run = has_openrouter_key
         if not can_run:
-            st.error("❌ Nenhuma chave OpenRouter encontrada no .env")
+            st.error(" Nenhuma chave OpenRouter encontrada no .env")
     else:
         can_run = has_openai_key
         if not can_run:
-            st.error("❌ OPENAI_API_KEY não encontrada no .env")
+            st.error(" OPENAI_API_KEY não encontrada no .env")
     
     if can_run:
-        st.success("✅ Chave API configurada corretamente")
+        st.success(" Chave API configurada corretamente")
+
+# Inicializar session_state ANTES de usar
+if 'process' not in st.session_state:
+    st.session_state.process = None
+if 'running' not in st.session_state:
+    st.session_state.running = False
+if 'stop_requested' not in st.session_state:
+    st.session_state.stop_requested = False
 
 with col2:
-    st.header("🎯 Ações")
+    st.header(" Ações")
     
     # Botão principal
-    run_button = st.button(
-        "🚀 INICIAR EXPERIMENTO",
-        type="primary",
-        disabled=not can_run,
-        use_container_width=True
-    )
+    col_btn1, col_btn2 = st.columns([2, 1])
     
-    if st.button("🔄 Limpar logs", use_container_width=True):
-        st.rerun()
+    with col_btn1:
+        run_button = st.button(
+            " INICIAR EXPERIMENTO",
+            type="primary",
+            disabled=not can_run or st.session_state.running,
+            use_container_width=True
+        )
+    
+    with col_btn2:
+        if st.session_state.running and st.session_state.process:
+            if st.button(" PARAR", type="secondary", use_container_width=True, key="stop_btn"):
+                try:
+                    st.session_state.process.terminate()
+                    st.session_state.process.wait(timeout=2)
+                except:
+                    st.session_state.process.kill()
+                st.session_state.process = None
+                st.session_state.running = False
+                st.warning(" Experimento interrompido!")
+                st.rerun()
+        else:
+            if st.button(" Limpar logs", use_container_width=True):
+                st.rerun()
 
 st.markdown("---")
 
@@ -214,7 +238,7 @@ log_area = st.container()
 # Executar experimento
 if run_button:
     with log_area:
-        st.info("🔧 Preparando experimento...")
+        st.info(" Preparando experimento...")
         
         # Preparar argumentos
         tmp_file = None
@@ -236,7 +260,7 @@ if run_button:
         script_path = Path(__file__).parent / "experiment_iterativo.py"
         
         if not script_path.exists():
-            st.error(f"❌ Script não encontrado: {script_path}")
+            st.error(f" Script não encontrado: {script_path}")
             st.stop()
         
         # Comando
@@ -260,7 +284,7 @@ if run_button:
         if clean_before:
             cmd.append("--clean")
         
-        st.info("🚀 Iniciando experimento... Acompanhe o progresso abaixo:")
+        st.info(" Iniciando experimento... Acompanhe o progresso abaixo:")
         st.code(" ".join(cmd), language="bash")
         
         # Container para logs
@@ -279,12 +303,35 @@ if run_button:
                 cwd=str(Path(__file__).parent)
             )
             
+            # Armazenar processo no session_state
+            st.session_state.process = process
+            st.session_state.running = True
+            st.session_state.stop_requested = False
+            
             output_lines = []
+            
+            # Criar placeholder para botão de parar
+            stop_placeholder = st.empty()
             
             # Ler saída em tempo real
             with status_container:
-                with st.spinner("⏳ Executando experimento..."):
+                with st.spinner(" Executando experimento..."):
+                    # Mostrar botão de parar
+                    with stop_placeholder.container():
+                        if st.button(" PARAR EXPERIMENTO", type="secondary", key="stop_during_exec"):
+                            st.session_state.stop_requested = True
+                    
                     for line in process.stdout:
+                        # Verificar se foi solicitada parada
+                        if st.session_state.stop_requested:
+                            st.warning(" Parando experimento...")
+                            try:
+                                process.terminate()
+                                process.wait(timeout=3)
+                            except:
+                                process.kill()
+                            break
+                        
                         line_clean = line.rstrip()
                         if line_clean:
                             output_lines.append(line_clean)
@@ -292,42 +339,61 @@ if run_button:
                             display_text = "\n".join(output_lines[-40:])
                             log_container.code(display_text, language="text")
             
+            # Limpar placeholder do botão
+            stop_placeholder.empty()
+            
             # Aguardar conclusão
-            process.wait()
+            if not st.session_state.stop_requested:
+                process.wait()
+            
+            # Limpar estado
+            st.session_state.process = None
+            st.session_state.running = False
+            st.session_state.stop_requested = False
             
             # Capturar stderr
             stderr_output = process.stderr.read()
             
-            if process.returncode != 0:
-                st.error(f"❌ Falha ao executar experimento (código {process.returncode})")
+            if st.session_state.stop_requested or process.returncode == -15:  # SIGTERM
+                st.warning(" Experimento interrompido pelo usuário!")
+                if output_lines:
+                    with st.expander("Log Parcial", expanded=False):
+                        st.code("\n".join(output_lines), language="text")
+            elif process.returncode != 0:
+                st.error(f" Falha ao executar experimento (código {process.returncode})")
                 if stderr_output:
-                    with st.expander("📋 Erro detalhado"):
+                    with st.expander(" Erro detalhado"):
                         st.code(stderr_output, language="text")
             else:
-                st.success(f"✅ Experimento concluído com sucesso!")
-                st.success(f"📂 Resultados salvos em: `{out_dir_exp}/`")
+                st.success(f" Experimento concluído com sucesso!")
+                st.success(f" Resultados salvos em: `{out_dir_exp}/`")
                 st.balloons()
                 
                 # Mostrar log completo
                 if output_lines:
-                    with st.expander("📊 Log Completo", expanded=False):
+                    with st.expander("Log Completo", expanded=False):
                         st.code("\n".join(output_lines), language="text")
                 
                 # Botão para baixar log
                 log_text = "\n".join(output_lines)
                 st.download_button(
-                    label="💾 Baixar log completo",
+                    label=" Baixar log completo",
                     data=log_text,
                     file_name=f"experimento_log_{out_dir_exp}.txt",
                     mime="text/plain"
                 )
                         
         except Exception as e:
-            st.error(f"❌ Erro ao iniciar experimento: {e}")
+            st.error(f" Erro ao iniciar experimento: {e}")
             import traceback
-            with st.expander("📋 Traceback completo"):
+            with st.expander(" Traceback completo"):
                 st.code(traceback.format_exc())
         finally:
+            # Limpar estado
+            st.session_state.process = None
+            st.session_state.running = False
+            
+            # Remover arquivo temporário
             if tmp_file and os.path.exists(tmp_file):
                 try:
                     os.remove(tmp_file)
@@ -338,6 +404,6 @@ if run_button:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: gray; font-size: 0.9em;'>
-    🧪 Interface de Experimento Iterativo | Porta 8502
+     Interface de Experimento Iterativo | Porta 8502
 </div>
 """, unsafe_allow_html=True)
