@@ -565,7 +565,7 @@ def main():
             except Exception as e:
                 print(f"Nao foi possivel gerar com DeepSeek ({e}).", file=sys.stderr)
                 print("   Voce ainda pode avaliar BLEU passando --hypothesis com sua saida ou usar --hyp-file.", file=sys.stderr)
-            sys.exit(3)
+                sys.exit(3)
         elif hyp_set:
             # se apenas conjunto foi fornecido, usar a primeira hipotese para metricas unitarias
             hypothesis = hyp_set[0]

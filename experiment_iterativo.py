@@ -117,6 +117,8 @@ def cosine_distance(a: np.ndarray, b: np.ndarray) -> float:
 
 # ------------------------------- LLM ----------------------------------------
 
+# Base prompt for initial idea generation
+# Used in first iteration (without feedback)
 BASE_PROMPT = (
     "Consider the following writing contest invitation:\n"
     "------\n"
@@ -139,14 +141,44 @@ BASE_PROMPT = (
 
 
 def prompt_with_feedback(a_text: str, b_text: str) -> str:
+    """
+    Generate prompt with user preference feedback.
+    
+    This prompt simulates a writing contest scenario where:
+    1. User has preferred idea A over idea B
+    2. The LLM should generate new ideas considering this preference
+    3. The goal is to explore variations that align with the preferred direction
+    
+    Args:
+        a_text: Text of preferred idea (chosen by user)
+        b_text: Text of non-preferred idea (rejected)
+    
+    Returns:
+        Complete prompt with preference feedback
+    """
+    # NEW PROMPT (writing contest style with user preference)
     header = (
-        "Previously, you generated two ideas (A preferred over B).\n\n"
-        "Here is idea A (preferred):\n### A\n" + a_text.strip() + "\n\n"
-        "Here is idea B (not preferred):\n### B\n" + b_text.strip() + "\n\n"
-        "Generate two NEW and DISTINCT ideas, 150 words each, improving towards the qualities in A.\n"
-        "Output strictly as:\n### 1.txt\n<idea one>\n### 2.txt\n<idea two>\n"
+        "Previously, you have generated 2 short-story ideas (A and B below) based on the invitation and directive. "
+        "The user preferred idea A over idea B.\n\n"
+        "Here's idea A:\n------\n" + a_text.strip() + "\n------\n\n"
+        "Here's idea B:\n------\n" + b_text.strip() + "\n------\n\n"
+        "Your task is to creatively generate another 2 short-story ideas based on the invitation, directive, and now the feedback. "
+        "Each idea should span 150 words and be distinct in theme, tone, and concept.\n\n"
+        "The ideas should be provided in two separate files: 1.txt and 2.txt."
     )
     return BASE_PROMPT + "\n\n" + header
+    
+    # OLD PROMPT (semantic convergence - commented for reference)
+    # header = (
+    #     "Previously, you generated two ideas (A and B). "
+    #     "Idea A was semantically closer to a target reference than idea B.\n\n"
+    #     "Here is idea A (closer to target):\n### A\n" + a_text.strip() + "\n\n"
+    #     "Here is idea B (further from target):\n### B\n" + b_text.strip() + "\n\n"
+    #     "Generate two NEW and DISTINCT ideas, 150 words each, that explore variations "
+    #     "closer to the semantic space of idea A.\n"
+    #     "Output strictly as:\n### 1.txt\n<idea one>\n### 2.txt\n<idea two>\n"
+    # )
+    # return BASE_PROMPT + "\n\n" + header
 
 
 def parse_two_ideas(text: str) -> Tuple[str, str]:
@@ -338,6 +370,9 @@ def main() -> None:
     ap.add_argument("--patience", type=int, default=5)
     ap.add_argument("--delta", type=float, default=0.005)
     ap.add_argument("--clean", action="store_true", help="Limpar diretorio de saida antes de iniciar")
+    ap.add_argument("--start-from-ref", type=int, default=None, help="Comecar a partir da referencia N (pula referencias anteriores)")
+    ap.add_argument("--skip-complete", action="store_true", help="Pular referencias que ja tem >= 10 iteracoes")
+    ap.add_argument("--max-refs", type=int, default=None, help="Numero maximo de referencias a processar (limita o total)")
     args = ap.parse_args()
 
     print("=" * 80)
@@ -374,7 +409,13 @@ def main() -> None:
     if not refs:
         raise SystemExit("Sem referencias no caminho informado.")
     
-    print(f" Carregadas {len(refs)} referencias")
+    # Limitar número de referências se especificado
+    total_refs_loaded = len(refs)
+    if args.max_refs and args.max_refs < total_refs_loaded:
+        refs = refs[:args.max_refs]
+        print(f" Carregadas {total_refs_loaded} referencias, limitando a {args.max_refs}")
+    else:
+        print(f" Carregadas {len(refs)} referencias")
     print()
 
     device = None if args.device == "auto" else args.device
@@ -395,6 +436,25 @@ def main() -> None:
     )
 
     for i, ref in enumerate(refs, start=1):
+        # Pular referências se --start-from-ref especificado
+        if args.start_from_ref and i < args.start_from_ref:
+            print(f" PULANDO ref_{i:03d} (start-from-ref={args.start_from_ref})")
+            continue
+        
+        # Pular referências completas se --skip-complete especificado
+        if args.skip_complete:
+            ref_dir = out_dir / f"ref_{i:03d}"
+            log_file = ref_dir / "log.csv"
+            if log_file.exists():
+                try:
+                    import pandas as pd
+                    df = pd.read_csv(log_file)
+                    if len(df) > 0 and df['iter'].max() >= 10:
+                        print(f" PULANDO ref_{i:03d} (já completa com {df['iter'].max()} iterações)")
+                        continue
+                except Exception:
+                    pass  # Se der erro, processar normalmente
+        
         print(f"\n{'='*80}")
         print(f" REFERENCIA {i}/{len(refs)}")
         print(f"{'='*80}")

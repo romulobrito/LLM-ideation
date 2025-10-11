@@ -68,6 +68,31 @@ with st.sidebar:
             value="/home/romulo/Documentos/MAI-DAI-USP/refs_combined.txt"
         )
         refs_raw = None
+        
+        # Contar número de referências no arquivo
+        total_refs_available = 0
+        if refs_path and Path(refs_path).exists():
+            try:
+                with open(refs_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    num_separators = content.count('---')
+                    total_refs_available = num_separators + 1 if num_separators > 0 else 0
+            except:
+                total_refs_available = 0
+        
+        # Slider para limitar número de referências
+        if total_refs_available > 0:
+            max_refs_to_use = st.slider(
+                "Número máximo de referências a processar:",
+                min_value=1,
+                max_value=total_refs_available,
+                value=total_refs_available,
+                help=f"Total disponível: {total_refs_available} referências"
+            )
+            st.caption(f" {max_refs_to_use} de {total_refs_available} referências serão processadas")
+        else:
+            max_refs_to_use = None
+            
     elif fonte_refs == "Pasta":
         refs_folder = st.text_input(
             "Caminho da pasta:",
@@ -75,12 +100,14 @@ with st.sidebar:
         )
         refs_path = refs_folder
         refs_raw = None
+        max_refs_to_use = None  # Não aplicável para pasta
     else:
         refs_raw = st.text_area(
             "Cole as referências (separadas por ---)",
             height=150
         )
         refs_path = None
+        max_refs_to_use = None  # Não aplicável para texto direto
     
     st.markdown("---")
     st.subheader(" Modelo LLM")
@@ -203,18 +230,99 @@ if 'stop_requested' not in st.session_state:
 with col2:
     st.header(" Ações")
     
-    # Botão principal
-    col_btn1, col_btn2 = st.columns([2, 1])
+    # Detectar progresso do experimento
+    def analyze_experiment_progress(out_dir, refs_file):
+        """Analisa o progresso do experimento e retorna estatísticas."""
+        import pandas as pd
+        
+        # Contar total de referências no arquivo
+        total_refs_in_file = 0
+        if refs_file and Path(refs_file).exists():
+            try:
+                with open(refs_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    # Contar separadores "---"
+                    # Número de referências = separadores + 1
+                    num_separators = content.count('---')
+                    total_refs_in_file = num_separators + 1 if num_separators > 0 else 0
+            except:
+                pass
+        
+        out_path = Path(out_dir)
+        if not out_path.exists():
+            return 1 if total_refs_in_file > 0 else None, 0, total_refs_in_file
+        
+        ref_folders = sorted(out_path.glob("ref_*"))
+        if not ref_folders and total_refs_in_file > 0:
+            return 1, 0, total_refs_in_file  # Nenhuma iniciada, começar da ref_001
+        
+        completed = 0
+        first_incomplete = None
+        max_ref_id = 0
+        
+        for ref_path in ref_folders:
+            ref_id = int(ref_path.name.split("_")[1])
+            max_ref_id = max(max_ref_id, ref_id)
+            log_file = ref_path / "log.csv"
+            
+            is_complete = False
+            if log_file.exists():
+                try:
+                    df = pd.read_csv(log_file)
+                    # Considerar completa se tem >= 10 iterações (critério fixo)
+                    if len(df) > 0 and df['iter'].max() >= 10:
+                        is_complete = True
+                        completed += 1
+                except:
+                    pass
+            
+            if not is_complete and first_incomplete is None:
+                first_incomplete = ref_id
+        
+        # Se todas as existentes estão completas, mas ainda há refs no arquivo
+        if first_incomplete is None and total_refs_in_file > max_ref_id:
+            first_incomplete = max_ref_id + 1
+        
+        # Usar o total do arquivo se disponível, senão usar o número de pastas
+        total_refs = total_refs_in_file if total_refs_in_file > 0 else len(ref_folders)
+        
+        return first_incomplete, completed, total_refs
+    
+    refs_file_path = refs_path if refs_path else "/home/romulo/Documentos/MAI-DAI-USP/refs_combined.txt"
+    last_incomplete, num_completed, total_refs = analyze_experiment_progress(out_dir_exp, refs_file_path)
+    
+    # Mostrar progresso se houver experimento anterior
+    if last_incomplete and num_completed is not None and total_refs is not None:
+        progress_pct = (num_completed / total_refs) * 100 if total_refs > 0 else 0
+        st.info(f" Progresso detectado: {num_completed}/{total_refs} refs completas ({progress_pct:.1f}%) | Próxima: ref_{last_incomplete:03d}")
+    
+    # Botões principais
+    if last_incomplete:
+        col_btn1, col_btn2, col_btn3 = st.columns([2, 2, 1])
+    else:
+        col_btn1, col_btn2 = st.columns([2, 1])
     
     with col_btn1:
         run_button = st.button(
-            " INICIAR EXPERIMENTO",
+            " INICIAR DO ZERO",
             type="primary",
             disabled=not can_run or st.session_state.running,
             use_container_width=True
         )
     
-    with col_btn2:
+    if last_incomplete:
+        with col_btn2:
+            continue_button = st.button(
+                f" RETOMAR ({num_completed}/{total_refs})",
+                type="primary",
+                disabled=not can_run or st.session_state.running,
+                use_container_width=True,
+                help=f"Continuar de onde parou: ref_{last_incomplete:03d} ({num_completed} completas, {total_refs - num_completed} restantes)"
+            )
+    else:
+        continue_button = False
+    
+    with (col_btn3 if last_incomplete else col_btn2):
         if st.session_state.running and st.session_state.process:
             if st.button(" PARAR", type="secondary", use_container_width=True, key="stop_btn"):
                 try:
@@ -236,9 +344,12 @@ st.markdown("---")
 log_area = st.container()
 
 # Executar experimento
-if run_button:
+if run_button or continue_button:
     with log_area:
-        st.info(" Preparando experimento...")
+        if continue_button:
+            st.info(f" Continuando experimento a partir de ref_{last_incomplete:03d}...")
+        else:
+            st.info(" Preparando experimento...")
         
         # Preparar argumentos
         tmp_file = None
@@ -280,11 +391,22 @@ if run_button:
             "--delta", str(float(delta_exp)),
         ]
         
-        # Adicionar flag --clean se checkbox marcado
-        if clean_before:
+        # Adicionar --max-refs se disponível (apenas para fonte "Arquivo")
+        if fonte_refs == "Arquivo" and max_refs_to_use:
+            cmd.extend(["--max-refs", str(max_refs_to_use)])
+        
+        # Adicionar flag --clean se checkbox marcado (apenas para INICIAR DO ZERO)
+        if clean_before and run_button:
             cmd.append("--clean")
         
-        st.info(" Iniciando experimento... Acompanhe o progresso abaixo:")
+        # Adicionar --start-from-ref se for CONTINUAR
+        if continue_button and last_incomplete:
+            cmd.extend(["--start-from-ref", str(last_incomplete)])
+        
+        if continue_button:
+            st.info(f" Continuando de ref_{last_incomplete:03d}... Acompanhe o progresso abaixo:")
+        else:
+            st.info(" Iniciando experimento... Acompanhe o progresso abaixo:")
         st.code(" ".join(cmd), language="bash")
         
         # Container para logs
