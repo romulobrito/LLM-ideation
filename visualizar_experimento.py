@@ -34,6 +34,38 @@ st.set_page_config(
     layout="wide"
 )
 
+# Função auxiliar para salvar gráficos
+def save_plot(fig, filename, is_plotly=True):
+    """Salva um gráfico em PNG se o modo de salvamento estiver ativo."""
+    if st.session_state.get('save_plots', False):
+        output_dir = st.session_state.get('output_dir')
+        if output_dir:
+            filepath = output_dir / filename
+            try:
+                if is_plotly:
+                    # Salvar gráfico Plotly (requer kaleido)
+                    try:
+                        fig.write_image(str(filepath), width=1200, height=800)
+                        st.success(f" Salvo: {filename}")
+                        return True
+                    except Exception as e:
+                        if 'kaleido' in str(e).lower():
+                            st.warning(" Instale kaleido para salvar gráficos: pip install kaleido")
+                        else:
+                            st.warning(f"Erro ao salvar {filename}: {e}")
+                        return False
+                else:
+                    # Salvar gráfico Matplotlib
+                    fig.savefig(str(filepath), dpi=300, bbox_inches='tight')
+                    st.success(f" Salvo: {filename}")
+                    return True
+            except Exception as e:
+                st.warning(f"Erro ao salvar {filename}: {e}")
+                return False
+        else:
+            st.error(" Erro: output_dir não definido no session_state")
+    return False
+
 st.title(" Visualização do Experimento Iterativo")
 st.markdown("Análise gráfica das distâncias e embeddings gerados")
 st.markdown("---")
@@ -93,6 +125,26 @@ with st.sidebar:
     st.subheader(" Grafos e Hierarquia")
     show_dendrogram = st.checkbox("Dendrograma Hierárquico", value=True)
     show_evolution_graph = st.checkbox("Grafo de Evolução", value=True)
+    
+    st.markdown("---")
+    st.subheader(" Exportar Gráficos")
+    
+    # Botão para salvar todos os gráficos
+    if st.button(" Salvar Todos os Gráficos (PNG)", type="primary", use_container_width=True):
+        # Criar pasta de saída
+        output_dir = exp_path / selected_ref / "graficos_png"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Armazenar flag no session_state para gerar e salvar gráficos
+        st.session_state['save_plots'] = True
+        st.session_state['output_dir'] = output_dir
+        st.info(f" Preparando para salvar gráficos em: {output_dir}")
+        st.info(f" Diretório existe: {output_dir.exists()}")
+        st.rerun()
+    
+    # Mostrar status se estiver salvando
+    if st.session_state.get('save_plots', False):
+        st.info(" Gerando e salvando gráficos...")
     
     st.markdown("---")
     st.subheader(" Métricas de Exploração")
@@ -221,6 +273,7 @@ if show_convergence_detailed:
     )
     
     st.plotly_chart(fig, use_container_width=True)
+    save_plot(fig, f"{selected_ref}_convergencia_detalhada.png", is_plotly=True)
     
     # Análise de convergência
     col1, col2, col3 = st.columns(3)
@@ -330,6 +383,7 @@ if show_convergence_simple:
     )
     
     st.plotly_chart(fig_simple, use_container_width=True)
+    save_plot(fig_simple, f"{selected_ref}_convergencia_simples.png", is_plotly=True)
     
     # Legenda
     st.markdown("""
@@ -348,10 +402,12 @@ if show_diversity:
     st.subheader(" Diversidade Intra-Iteração")
     
     st.info("""
-     **O que esta métrica mede:** Quão diferentes são as 2 ideias geradas em cada iteração.
+     **O que esta métrica mede:** Quão diferentes são as ideias geradas em cada iteração (média entre todos os pares).
     - **Alta diversidade** (≥0.5): LLM está explorando amplamente
     - **Baixa diversidade** (≤0.2): LLM está refinando localmente
     - **Decrescente**: Comportamento ideal de convergência
+    
+    **Nota:** Para experimentos com 4 candidatos/iteração, calcula-se a média de 6 pares (C(4,2) = 6).
     """)
     
     # Carregar embeddings para calcular diversidade
@@ -369,8 +425,8 @@ if show_diversity:
             for iter_num in sorted(df['iter'].unique()):
                 iter_data = df[df['iter'] == iter_num]
                 
-                if len(iter_data) == 2:  # Precisa de exatamente 2 candidatos
-                    # Carregar textos dos 2 candidatos
+                if len(iter_data) >= 2:  # Precisa de pelo menos 2 candidatos
+                    # Carregar textos de todos os candidatos
                     texts = []
                     for _, row in iter_data.iterrows():
                         cand_id = int(row['cand_id'])
@@ -380,13 +436,18 @@ if show_diversity:
                             with open(file_path, 'r', encoding='utf-8') as f:
                                 texts.append(f.read().strip())
                     
-                    if len(texts) == 2:
+                    if len(texts) >= 2:
                         # Gerar embeddings
                         embeddings = model.encode(texts, normalize_embeddings=True)
                         
-                        # Calcular distância cosseno entre os 2
+                        # Calcular diversidade média entre todos os pares
                         from scipy.spatial.distance import cosine
-                        diversity = cosine(embeddings[0], embeddings[1])
+                        diversities = []
+                        for i in range(len(embeddings)):
+                            for j in range(i+1, len(embeddings)):
+                                diversities.append(cosine(embeddings[i], embeddings[j]))
+                        
+                        diversity = np.mean(diversities)
                         
                         diversity_data.append({
                             'iter': iter_num,
@@ -428,6 +489,7 @@ if show_diversity:
                 )
                 
                 st.plotly_chart(fig_div, use_container_width=True)
+                save_plot(fig_div, f"{selected_ref}_diversidade_intra_iteracao.png", is_plotly=True)
                 
                 # Análise estatística
                 col1, col2, col3 = st.columns(3)
@@ -485,7 +547,7 @@ if show_diversity:
                         st.info(" Diversidade ESTÁVEL - Exploração constante")
             
             else:
-                st.warning(" Não foi possível calcular diversidade (precisa de 2 candidatos por iteração)")
+                st.warning(" Não foi possível calcular diversidade (precisa de pelo menos 2 candidatos por iteração)")
         
         except Exception as e:
             st.error(f"Erro ao calcular diversidade: {e}")
@@ -614,6 +676,7 @@ if show_novelty:
                 )
                 
                 st.plotly_chart(fig_nov, use_container_width=True)
+                save_plot(fig_nov, f"{selected_ref}_novidade.png", is_plotly=True)
                 
                 # Análise estatística
                 col1, col2, col3 = st.columns(3)
@@ -806,6 +869,7 @@ if show_exploration_rate:
             )
             
             st.plotly_chart(fig_exp, use_container_width=True)
+            save_plot(fig_exp, f"{selected_ref}_taxa_exploracao_refinamento.png", is_plotly=True)
             
             # Análise estatística
             col1, col2, col3, col4 = st.columns(4)
@@ -1116,6 +1180,7 @@ if show_embeddings_3d:
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
+                save_plot(fig, f"{selected_ref}_pca_3d.png", is_plotly=True)
                 
                 st.info(f" Variancia explicada: {sum(pca.explained_variance_ratio_)*100:.1f}%")
                 
@@ -1274,6 +1339,7 @@ if show_embeddings_tsne:
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
+                save_plot(fig, f"{selected_ref}_tsne_3d.png", is_plotly=True)
                 
                 # Legenda
                 st.markdown("""
@@ -1440,6 +1506,7 @@ if show_embeddings_umap and UMAP_AVAILABLE:
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
+                save_plot(fig, f"{selected_ref}_umap_3d.png", is_plotly=True)
                 
                 # Legenda
                 st.markdown("""
@@ -1894,6 +1961,7 @@ if show_evolution_graph:
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
+                save_plot(fig, f"{selected_ref}_grafo_evolucao.png", is_plotly=True)
                 
                 # Legenda atualizada
                 st.markdown(f"""
@@ -2204,6 +2272,7 @@ if show_all_refs_umap and UMAP_AVAILABLE:
             )
             
             st.plotly_chart(fig, use_container_width=True)
+            save_plot(fig, f"{selected_ref}_umap_3d_contexto_global.png", is_plotly=True)
             
             # Legenda explicativa
             best_dist_val = df['dist'].min()
@@ -2249,6 +2318,14 @@ with st.expander(" Ver dados completos (log.csv)"):
         file_name=f"{selected_ref}_log.csv",
         mime="text/csv"
     )
+
+# Finalizar salvamento de gráficos
+if st.session_state.get('save_plots', False):
+    output_dir = st.session_state.get('output_dir')
+    st.success(f" Todos os gráficos foram salvos em: {output_dir}")
+    st.info(" Clique em qualquer checkbox para voltar ao modo normal de visualização.")
+    # Resetar flag DEPOIS de mostrar mensagem
+    st.session_state['save_plots'] = False
 
 # Rodape
 st.markdown("---")

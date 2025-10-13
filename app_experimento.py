@@ -489,7 +489,6 @@ if run_button or continue_button:
             else:
                 st.success(f" Experimento concluído com sucesso!")
                 st.success(f" Resultados salvos em: `{out_dir_exp}/`")
-                st.balloons()
                 
                 # Mostrar log completo
                 if output_lines:

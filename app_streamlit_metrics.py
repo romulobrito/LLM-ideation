@@ -915,7 +915,6 @@ def main() -> None:
                         st.error(f"Erro:\n{stderr_output}")
                 else:
                     st.success(f" Experimento concluído com sucesso! Resultados salvos em: {out_dir_exp}/")
-                    st.balloons()
                     
                     # Mostrar resumo
                     if output_lines:

@@ -156,19 +156,30 @@ def prompt_with_feedback(a_text: str, b_text: str) -> str:
     Returns:
         Complete prompt with preference feedback
     """
-    # NEW PROMPT (writing contest style with user preference)
     header = (
         "Previously, you have generated 2 short-story ideas (A and B below) based on the invitation and directive. "
-        "The user preferred idea A over idea B.\n\n"
-        "Here's idea A:\n------\n" + a_text.strip() + "\n------\n\n"
-        "Here's idea B:\n------\n" + b_text.strip() + "\n------\n\n"
-        "Your task is to creatively generate another 2 short-story ideas based on the invitation, directive, and now the feedback. "
-        "Each idea should span 150 words and be distinct in theme, tone, and concept.\n\n"
+        "The user preferred idea A over idea B because it was closer to their target vision.\n\n"
+        "Here's idea A (preferred):\n------\n" + a_text.strip() + "\n------\n\n"
+        "Here's idea B (not preferred):\n------\n" + b_text.strip() + "\n------\n\n"
+        "Your task is to generate 2 NEW short-story ideas that REFINE and explore VARIATIONS of idea A's core elements. "
+        "Focus on staying CLOSE to the style, theme, tone, and narrative approach of idea A, while introducing subtle creative variations. "
+        "Each idea should span 150 words.\n\n"
         "The ideas should be provided in two separate files: 1.txt and 2.txt."
     )
     return BASE_PROMPT + "\n\n" + header
     
-    # OLD PROMPT (semantic convergence - commented for reference)
+    # header = (
+    #     "Previously, you have generated 2 short-story ideas (A and B below) based on the invitation and directive. "
+    #     "The user preferred idea A over idea B.\n\n"
+    #     "Here's idea A:\n------\n" + a_text.strip() + "\n------\n\n"
+    #     "Here's idea B:\n------\n" + b_text.strip() + "\n------\n\n"
+    #     "Your task is to creatively generate another 2 short-story ideas based on the invitation, directive, and now the feedback. "
+    #     "Each idea should span 150 words and be distinct in theme, tone, and concept.\n\n"
+    #     "The ideas should be provided in two separate files: 1.txt and 2.txt."
+    # )
+    # return BASE_PROMPT + "\n\n" + header
+    
+    # OLD PROMPT 
     # header = (
     #     "Previously, you generated two ideas (A and B). "
     #     "Idea A was semantically closer to a target reference than idea B.\n\n"
@@ -216,6 +227,7 @@ class IterConfig:
     max_iters: int
     patience: int
     delta: float
+    cands_per_iter: int
     out_dir: Path
 
 
@@ -249,39 +261,15 @@ def run_for_reference(ref_text: str, ref_id: int, embedder, cfg: IterConfig) -> 
             "model", "temperature", "reasoning", "max_tokens", "files"
         ])
 
-        # iteracao 1
-        txt = call_deepseek(
-            prompt=BASE_PROMPT,
-            model=cfg.model_id,
-            max_tokens=cfg.max_tokens,
-            temperature=cfg.temperature,
-            api_key_override=None,
-            reasoning_effort=cfg.reasoning,
-        )
-        i1, i2 = parse_two_ideas(txt)
+        # iteracao 1: gerar cfg.cands_per_iter candidatos
         iter_dir = out_base / "iter_001"
         iter_dir.mkdir(exist_ok=True)
-        (iter_dir / "1.txt").write_text(i1, encoding="utf-8")
-        (iter_dir / "2.txt").write_text(i2, encoding="utf-8")
-        e = embed_texts(embedder, [i1, i2])
-        d1 = cosine_distance(e[0], r_vec)
-        d2 = cosine_distance(e[1], r_vec)
-        if d1 <= d2:
-            A, B = i1, i2
-            A_idx = 1
-        else:
-            A, B = i2, i1
-            A_idx = 2
-        best = min(d1, d2)
-        w.writerow([1, 1, f"{d1:.6f}", 1 if A_idx == 1 else 0, f"{best:.6f}", cfg.model_id, cfg.temperature, cfg.reasoning or "", cfg.max_tokens, str(iter_dir / "1.txt")])
-        w.writerow([1, 2, f"{d2:.6f}", 1 if A_idx == 2 else 0, f"{best:.6f}", cfg.model_id, cfg.temperature, cfg.reasoning or "", cfg.max_tokens, str(iter_dir / "2.txt")])
         
-        print(f"   Iteracao 1: dist_1={d1:.4f}, dist_2={d2:.4f} → melhor: ideia {A_idx} (dist={best:.4f})")
-
-        # loop
-        for k in range(2, cfg.max_iters + 1):
+        cands, paths = [], []
+        print(f"   Gerando {cfg.cands_per_iter} candidatos para iteracao 1...")
+        while len(cands) < cfg.cands_per_iter:
             txt = call_deepseek(
-                prompt=prompt_with_feedback(A, B),
+                prompt=BASE_PROMPT,
                 model=cfg.model_id,
                 max_tokens=cfg.max_tokens,
                 temperature=cfg.temperature,
@@ -289,52 +277,107 @@ def run_for_reference(ref_text: str, ref_id: int, embedder, cfg: IterConfig) -> 
                 reasoning_effort=cfg.reasoning,
             )
             i1, i2 = parse_two_ideas(txt)
+            for idea in (i1, i2):
+                if idea and idea.strip() and len(cands) < cfg.cands_per_iter:
+                    cands.append(idea.strip())
+                    p = iter_dir / f"{len(cands)}.txt"
+                    p.write_text(idea.strip(), encoding="utf-8")
+                    paths.append(p)
+        
+        # Calcular embeddings e distancias
+        e = embed_texts(embedder, cands)
+        dists = [cosine_distance(vec, r_vec) for vec in e]
+        
+        # Ordenar por distancia (menor = melhor)
+        order = np.argsort(dists)
+        top1_idx = int(order[0])
+        top2_idx = int(order[1])
+        
+        # A = melhor (top1), B = segundo melhor (top2)
+        A = cands[top1_idx]
+        B = cands[top2_idx]
+        best = dists[top1_idx]
+        
+        # Logar todos os candidatos
+        for j, (d, pth) in enumerate(zip(dists, paths)):
+            chosen = 1 if j == top1_idx else 0
+            w.writerow([1, j+1, f"{d:.6f}", chosen, f"{best:.6f}", 
+                       cfg.model_id, cfg.temperature, cfg.reasoning or "", cfg.max_tokens, str(pth)])
+        
+        print(f"   Iteracao 1: melhor=cand_{top1_idx+1} (dist={best:.4f}), segundo=cand_{top2_idx+1} (dist={dists[top2_idx]:.4f})")
+
+        # loop principal (iteracoes k >= 2)
+        for k in range(2, cfg.max_iters + 1):
             iter_dir = out_base / f"iter_{k:03d}"
             iter_dir.mkdir(exist_ok=True)
-            (iter_dir / "1.txt").write_text(i1, encoding="utf-8")
-            (iter_dir / "2.txt").write_text(i2, encoding="utf-8")
-            e = embed_texts(embedder, [i1, i2])
-            d1 = cosine_distance(e[0], r_vec)
-            d2 = cosine_distance(e[1], r_vec)
             
-            # Identificar qual e a melhor da iteracao atual
-            if d1 <= d2:
-                best_current_idx = 1
-                best_current_text = i1
-                best_current_dist = d1
-                worst_current_text = i2
-            else:
-                best_current_idx = 2
-                best_current_text = i2
-                best_current_dist = d2
-                worst_current_text = i1
+            cands, paths = [], []
+            while len(cands) < cfg.cands_per_iter:
+                txt = call_deepseek(
+                    prompt=prompt_with_feedback(A, B),
+                    model=cfg.model_id,
+                    max_tokens=cfg.max_tokens,
+                    temperature=cfg.temperature,
+                    api_key_override=None,
+                    reasoning_effort=cfg.reasoning,
+                )
+                i1, i2 = parse_two_ideas(txt)
+                for idea in (i1, i2):
+                    if idea and idea.strip() and len(cands) < cfg.cands_per_iter:
+                        cands.append(idea.strip())
+                        p = iter_dir / f"{len(cands)}.txt"
+                        p.write_text(idea.strip(), encoding="utf-8")
+                        paths.append(p)
             
-            # log
+            # Calcular embeddings e distancias
+            e = embed_texts(embedder, cands)
+            dists = [cosine_distance(vec, r_vec) for vec in e]
+            
+            # Ordenar por distancia (menor = melhor)
+            order = np.argsort(dists)
+            top1_idx = int(order[0])
+            top2_idx = int(order[1])
+            
+            # Melhor da iteracao atual
+            best_iter = dists[top1_idx]
+            
+            # Atualizar melhor global
             best_prev = best
-            best = min(best, d1, d2)
-            w.writerow([k, 1, f"{d1:.6f}", 1 if best_current_idx == 1 else 0, f"{best:.6f}", cfg.model_id, cfg.temperature, cfg.reasoning or "", cfg.max_tokens, str(iter_dir / "1.txt")])
-            w.writerow([k, 2, f"{d2:.6f}", 1 if best_current_idx == 2 else 0, f"{best:.6f}", cfg.model_id, cfg.temperature, cfg.reasoning or "", cfg.max_tokens, str(iter_dir / "2.txt")])
+            best = min(best, best_iter)
             
-            # Imprimir progresso
-            melhoria = "" if best < best_prev else "="
-            print(f"  {melhoria} Iteracao {k}: dist_1={d1:.4f}, dist_2={d2:.4f} → melhor: ideia {best_current_idx} (dist={best:.4f}, no_improve={no_improve})")
-
-            # Atualizar A apenas se a melhor atual for melhor que a melhor historica
-            # Isso garante que o feedback sempre use a MELHOR ideia ja gerada
-            if best_current_dist < best_prev:
-                A = best_current_text
-            # Caso contrario, manter A anterior (melhor historica)
+            # Logar todos os candidatos
+            for j, (d, pth) in enumerate(zip(dists, paths)):
+                chosen = 1 if j == top1_idx else 0
+                w.writerow([k, j+1, f"{d:.6f}", chosen, f"{best:.6f}",
+                           cfg.model_id, cfg.temperature, cfg.reasoning or "", cfg.max_tokens, str(pth)])
             
-            # B sempre e a pior da iteracao atual (para contraste)
-            B = worst_current_text
-
-            # criterios de parada
-            if best + cfg.delta < best_prev:
+            # MUDANCA CRITICA: Atualizar A SEMPRE para top1 (nao so quando melhora global)
+            # Isso permite "pioras temporarias" e evita congelamento em minimo local
+            A = cands[top1_idx]
+            B = cands[top2_idx]  # B = segundo melhor (nao a pior!)
+            
+            # Calcular gap entre top1 e top2
+            gap = dists[top2_idx] - dists[top1_idx]
+            
+            # Early stopping com delta RELATIVO
+            if best_prev > 0:
+                rel_improvement = (best_prev - best) / best_prev
+            else:
+                rel_improvement = 0.0
+            
+            if rel_improvement > cfg.delta:
                 no_improve = 0
+                melhoria_str = f"↓ (-{rel_improvement*100:.1f}%)"
             else:
                 no_improve += 1
+                melhoria_str = "="
+            
+            print(f"  {melhoria_str} Iteracao {k}: top1=cand_{top1_idx+1} ({best_iter:.4f}), "
+                  f"top2=cand_{top2_idx+1} ({dists[top2_idx]:.4f}), gap={gap:.4f} | "
+                  f"best_global={best:.4f}, no_improve={no_improve}/{cfg.patience}")
+            
             if no_improve >= cfg.patience:
-                print(f"    Early stop: sem melhora significativa por {cfg.patience} iteracoes")
+                print(f"    Early stop: sem melhoria relativa > {cfg.delta*100:.1f}% por {cfg.patience} iteracoes")
                 break
         
         print(f"   Concluido: {k} iteracoes, melhor distancia final: {best:.4f}")
@@ -362,13 +405,14 @@ def main() -> None:
     ap.add_argument("--out-dir", type=str, required=True, help="Pasta de saida do experimento")
     ap.add_argument("--model", type=str, default="gpt-4o-mini", help="Modelo LLM (sem '/' para OpenAI direta, com '/' para OpenRouter)")
     ap.add_argument("--reasoning", type=str, default="None", help="Reasoning effort (apenas para modelos OpenRouter que suportam)")
-    ap.add_argument("--temperature", type=float, default=0.7)
+    ap.add_argument("--temperature", type=float, default=0.5, help="Temperature para geracao (default 0.5 para convergencia)")
     ap.add_argument("--max-tokens", type=int, default=2000)
     ap.add_argument("--embedder", type=str, default="all-MiniLM-L6-v2")
     ap.add_argument("--device", type=str, default="auto")
     ap.add_argument("--max-iters", type=int, default=30)
-    ap.add_argument("--patience", type=int, default=5)
-    ap.add_argument("--delta", type=float, default=0.005)
+    ap.add_argument("--patience", type=int, default=10, help="Numero de iteracoes sem melhoria antes de parar (default 10)")
+    ap.add_argument("--delta", type=float, default=0.01, help="Melhoria relativa minima (default 0.01 = 1%%)")
+    ap.add_argument("--cands-per-iter", type=int, default=4, help="Numero de candidatos por iteracao (default 4)")
     ap.add_argument("--clean", action="store_true", help="Limpar diretorio de saida antes de iniciar")
     ap.add_argument("--start-from-ref", type=int, default=None, help="Comecar a partir da referencia N (pula referencias anteriores)")
     ap.add_argument("--skip-complete", action="store_true", help="Pular referencias que ja tem >= 10 iteracoes")
@@ -383,9 +427,10 @@ def main() -> None:
     print(f" Modelo LLM: {args.model}")
     print(f"  Temperatura: {args.temperature}")
     print(f" Max tokens: {args.max_tokens}")
+    print(f" Candidatos por iteracao: {args.cands_per_iter}")
     print(f" Max iteracoes: {args.max_iters}")
     print(f"  Paciencia (early stop): {args.patience}")
-    print(f" Delta minimo: {args.delta}")
+    print(f" Delta minimo (relativo): {args.delta*100:.1f}%")
     print(f" Embedder: {args.embedder}")
     print(f" Device: {args.device}")
     if args.reasoning and args.reasoning != "None":
@@ -432,6 +477,7 @@ def main() -> None:
         max_iters=args.max_iters,
         patience=args.patience,
         delta=args.delta,
+        cands_per_iter=args.cands_per_iter,
         out_dir=out_dir,
     )
 
