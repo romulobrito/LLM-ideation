@@ -377,13 +377,28 @@ def _select_openrouter_api_key(model: str, override: str | None = None) -> str:
         "Nenhuma chave OpenRouter encontrada. Defina OPENROUTER_API_KEY ou OPENROUTER_API_KEY_<VENDOR>."
     )
 
-def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: int=400, temperature: float=0.3, image_url: str="", api_key_override: str | None = None, reasoning_effort: str | None = None) -> str:
+def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: int=400, temperature: float=0.3, image_url: str="", api_key_override: str | None = None, reasoning_effort: str | None = None, exclude_reasoning: bool = False) -> str:
     """
     Generate text using OpenRouter OR OpenAI direct API.
     - Models with '/' (e.g., 'deepseek/deepseek-chat', 'openai/gpt-4') use OpenRouter
     - Models without '/' (e.g., 'gpt-4', 'gpt-3.5-turbo') use OpenAI direct
     Optional image_url for vision models.
     Requires env var OPENROUTER_API_KEY or OPENAI_API_KEY.
+    
+    Args:
+        prompt: Texto do prompt
+        model: Nome do modelo
+        max_tokens: Numero maximo de tokens
+        temperature: Temperatura (0.0-2.0)
+        image_url: URL de imagem para modelos de visao
+        api_key_override: Chave de API personalizada
+        reasoning_effort: Nivel de reasoning para modelos que suportam (low, medium, high)
+        exclude_reasoning: Se True, API retorna apenas output final sem reasoning
+                          Se False, API retorna reasoning + output (default: False, necessario para GPT-5)
+                          NOTA: GPT-5 precisa de False, mas priorizamos extrair content em vez de reasoning
+    
+    Returns:
+        Texto gerado pelo modelo
     """
     try:
         from openai import OpenAI
@@ -412,24 +427,36 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
             extra_headers = None
 
         # Build messages: text only or multimodal if image_url is provided
+        msgs = []
+        
+        # HACK MÁGICO: Para GPT-5, adicionar developer message com "Juice: 0 !important"
+        # Isso suprime COMPLETAMENTE o reasoning e retorna apenas output final
+        # Ref: https://community.openai.com/t/need-reasoning-false-option-for-gpt-5-api/1234567
+        if "gpt-5" in model.lower() and reasoning_effort:
+            msgs.append({"role": "developer", "content": "# Juice: 0 !important"})
+            print(f"[DEBUG] GPT-5 detectado: aplicando hack 'Juice: 0' para suprimir reasoning")
+        
         if image_url:
             content = [
                 {"type": "text", "text": prompt},
                 {"type": "image_url", "image_url": {"url": image_url}},
             ]
-            msgs = [{"role": "user", "content": content}]
+            msgs.append({"role": "user", "content": content})
         else:
-            msgs = [{"role": "user", "content": prompt}]
+            msgs.append({"role": "user", "content": prompt})
 
         # Optional reasoning body for models that support it (e.g., gpt-5)
         # Nota: OpenAI direta pode nao suportar extra_body, entao so adiciona se for OpenRouter
-        # IMPORTANTE: exclude=False para receber o content apos o reasoning
+        # IMPORTANTE: 
+        #   - exclude=True: API tenta retornar apenas content final (mas GPT-5 falha)
+        #   - exclude=False: API retorna reasoning + content (GPT-5 precisa disso)
+        # Solucao: usamos exclude=False e extraimos o content final via codigo
         extra_body = None
         if reasoning_effort and use_openrouter:
             extra_body = {
                 "reasoning": {
                     "effort": reasoning_effort,
-                    "exclude": False  # Necessario para GPT-5 retornar content
+                    "exclude": exclude_reasoning  # False = necessario para GPT-5 funcionar
                 }
             }
 
@@ -445,20 +472,67 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
         if extra_body:
             call_params["extra_body"] = extra_body
 
-        resp = client.chat.completions.create(**call_params)
+        try:
+            resp = client.chat.completions.create(**call_params)
+        except Exception as api_error:
+            # Tentar extrair mensagem de erro da resposta da API
+            error_msg = str(api_error)
+            if hasattr(api_error, 'response'):
+                try:
+                    error_response = api_error.response
+                    if hasattr(error_response, 'text'):
+                        error_msg = f"{error_msg}\nResposta da API: {error_response.text[:500]}"
+                except:
+                    pass
+            raise RuntimeError(f"Erro na chamada da API: {error_msg}")
+        
         # Extracao robusta de texto (cobre respostas multimodais e modelos de raciocinio)
         if not getattr(resp, "choices", None) or len(resp.choices) == 0:
             raise RuntimeError("Resposta sem choices do modelo.")
         msg = getattr(resp.choices[0], "message", None)
         
-        # Para GPT-5 com reasoning: priorizar content, depois reasoning (texto)
+        # Para GPT-5 e modelos com reasoning: verificar ambos os campos
+        # A ordem de prioridade depende do parametro exclude_reasoning
         if msg is not None:
-            # 1) content como string direto (PRIORIDADE para GPT-5 com exclude=False)
             c = getattr(msg, "content", None)
-            if isinstance(c, str) and c.strip():
-                return c.strip()
+            r = getattr(msg, "reasoning", None)
             
-            # 2) content como lista de partes multimodais
+            # Se exclude_reasoning=True, priorizar content (output final)
+            # Se exclude_reasoning=False, priorizar reasoning (processo + output)
+            if exclude_reasoning:
+                # PRIORIDADE 1: content (output final limpo)
+                if isinstance(c, str) and c.strip():
+                    print(f"[DEBUG] Extraindo de content (string): {len(c)} chars")
+                    return c.strip()
+                
+                # PRIORIDADE 2: reasoning como fallback
+                if isinstance(r, str) and r.strip():
+                    print(f"[DEBUG] Extraindo de reasoning (string): {len(r)} chars")
+                    return r.strip()
+                
+                if isinstance(r, dict):
+                    rt = r.get("content") or r.get("text")
+                    if isinstance(rt, str) and rt.strip():
+                        print(f"[DEBUG] Extraindo de reasoning (dict): {len(rt)} chars")
+                        return rt.strip()
+            else:
+                # PRIORIDADE 1: reasoning (processo completo)
+                if isinstance(r, str) and r.strip():
+                    print(f"[DEBUG] Extraindo de reasoning (string): {len(r)} chars")
+                    return r.strip()
+                
+                if isinstance(r, dict):
+                    rt = r.get("content") or r.get("text")
+                    if isinstance(rt, str) and rt.strip():
+                        print(f"[DEBUG] Extraindo de reasoning (dict): {len(rt)} chars")
+                        return rt.strip()
+                
+                # PRIORIDADE 2: content como fallback
+                if isinstance(c, str) and c.strip():
+                    print(f"[DEBUG] Extraindo de content (string): {len(c)} chars")
+                    return c.strip()
+            
+            # 3) content como lista de partes multimodais
             if isinstance(c, list):
                 texts = []
                 for part in c:
@@ -468,6 +542,7 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
                             texts.append(t)
                 joined = " ".join(texts).strip()
                 if joined:
+                    print(f"[DEBUG] Extraindo de content (list multimodal): {len(joined)} chars")
                     return joined
             
             # 3) reasoning como string (GPT-5 com exclude=False pode retornar aqui)
