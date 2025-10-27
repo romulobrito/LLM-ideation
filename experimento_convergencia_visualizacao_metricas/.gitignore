@@ -1,4 +1,6 @@
 .env
+.env.*
+!env.template
 
 ############################
 # Python
@@ -19,6 +21,7 @@ build/
 # Virtualenv
 ############################
 .venv/
+venv/
 
 ############################
 # Streamlit
@@ -30,12 +33,19 @@ build/
 ############################
 refs_combined.txt
 ideas-exp/
+ideas-exp.zip
 vectorstore*/
 *.npy
 *.npz
 *.csv
 *.tsv
 *.jsonl
+exp_out/
+exp_out_*/
+exp_out_test*/
+# Arquivos de output do experimento
+*.txt
+!requirements.txt
 
 ############################
 # Large/binary artifacts
@@ -46,4 +56,13 @@ vectorstore*/
 *.bin
 prompt
 11760_Measuring_similarity_bet.txt
-modell_ai_metrics.txt 
+modell_ai_metrics.txt
+*.md
+*.sh
+*.tex
+*.aux
+*.log
+*.out
+*.toc
+keys.txt
+=* 

@@ -26,7 +26,7 @@ def _load_env_robusto():
     try_paths = [
         Path(__file__).parent / ".env",
         Path.cwd() / ".env",
-        Path.home() / "Documentos" / "MAI-DAI-USP" / ".env",
+        Path.home() / "Documentos" / "MAI-DAI-USP" / "experimento_convergencia_visualizacao_metricas" / ".env",
     ]
     for p in try_paths:
         if p.exists():
@@ -65,7 +65,7 @@ with st.sidebar:
     if fonte_refs == "Arquivo":
         refs_path = st.text_input(
             "Caminho do arquivo:",
-            value="/home/romulo/Documentos/MAI-DAI-USP/refs_combined.txt"
+            value="/home/romulo/Documentos/MAI-DAI-USP/experimento_convergencia_visualizacao_metricas/refs_combined.txt"
         )
         refs_raw = None
         
@@ -96,7 +96,7 @@ with st.sidebar:
     elif fonte_refs == "Pasta":
         refs_folder = st.text_input(
             "Caminho da pasta:",
-            value="/home/romulo/Documentos/MAI-DAI-USP/ideas-exp"
+            value="/home/romulo/Documentos/MAI-DAI-USP/experimento_convergencia_visualizacao_metricas/ideas-exp"
         )
         refs_path = refs_folder
         refs_raw = None
@@ -288,7 +288,7 @@ with col2:
         
         return first_incomplete, completed, total_refs
     
-    refs_file_path = refs_path if refs_path else "/home/romulo/Documentos/MAI-DAI-USP/refs_combined.txt"
+    refs_file_path = refs_path if refs_path else "/home/romulo/Documentos/MAI-DAI-USP/experimento_convergencia_visualizacao_metricas/refs_combined.txt"
     last_incomplete, num_completed, total_refs = analyze_experiment_progress(out_dir_exp, refs_file_path)
     
     # Mostrar progresso se houver experimento anterior
@@ -362,7 +362,7 @@ if run_button or continue_button:
             refs_arg = tmp.name
             tmp_file = tmp.name
         else:
-            refs_arg = refs_path or "/home/romulo/Documentos/MAI-DAI-USP/refs_combined.txt"
+            refs_arg = refs_path or "/home/romulo/Documentos/MAI-DAI-USP/experimento_convergencia_visualizacao_metricas/refs_combined.txt"
         
         reasoning_arg = reasoning_effort if reasoning_effort != "Nenhum" else "None"
         model_arg = model_name.strip() or "gpt-4o-mini"
