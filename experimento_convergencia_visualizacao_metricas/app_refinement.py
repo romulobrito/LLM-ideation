@@ -245,6 +245,34 @@ reasoning_effort = st.sidebar.selectbox(
     help="Nivel de reasoning para modelos que suportam (ex: GPT-5). Use 'minimal' para GPT-5 com JSON estruturado."
 )
 
+# NOVO: Norte Fixo
+st.sidebar.subheader("⭐ Norte Fixo (Experimental)")
+
+use_north_star = st.sidebar.checkbox(
+    "Usar Norte Fixo Automático",
+    value=True,
+    help="Gera diretrizes FIXAS analisando ideias humanas (reduz oscilacao do feedback)"
+)
+
+if use_north_star:
+    north_star_model = st.sidebar.selectbox(
+        "Modelo para Norte",
+        ["gpt-4o", "gpt-4o-mini", "deepseek/deepseek-chat"],
+        index=0,
+        help="Modelo para analisar ideias humanas e gerar norte fixo (use gpt-4o para melhor qualidade)"
+    )
+    
+    st.sidebar.info("""
+    **💡 Norte Fixo:**
+    - Analisa ideias humanas UMA VEZ
+    - Extrai padrões fundamentais
+    - Mantém direção constante
+    - Reduz oscilação do feedback
+    """)
+else:
+    north_star_model = "gpt-4o"
+    st.sidebar.warning("⚠️ Feedback 100% dinâmico (pode oscilar)")
+
 # Diretorio de saida
 st.sidebar.subheader("Saida")
 
@@ -475,6 +503,8 @@ if run_button:
         max_tokens=max_tokens,
         reasoning_effort=reasoning_arg,
         output_dir=Path(output_dir),
+        use_north_star=use_north_star,  # NOVO
+        north_star_model=north_star_model,  # NOVO
     )
     
     # Marcar como rodando

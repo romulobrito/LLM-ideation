@@ -24,6 +24,7 @@ from sentence_transformers import SentenceTransformer
 from refinement_critique import critique_step
 from refinement_packing import packing_step
 from refinement_generation import generation_step
+from refinement_north import generate_north_star, format_north_with_tactical
 
 
 @dataclass
@@ -60,6 +61,8 @@ class RefinementConfig:
     api_key_override: Optional[str] = None
     reasoning_effort: Optional[str] = None
     output_dir: Optional[Path] = None
+    use_north_star: bool = True  # NOVO: Usar norte fixo automatico
+    north_star_model: str = "gpt-4o"  # NOVO: Modelo para gerar norte (mais preciso)
 
 
 class RefinementLoop:
@@ -130,6 +133,28 @@ class RefinementLoop:
         print("INICIANDO REFINEMENT LOOP")
         print("="*60 + "\n")
         
+        # NOVO: Gerar norte fixo UMA VEZ antes do loop
+        north_star = None
+        if self.config.use_north_star:
+            print("[LOOP] Modo: NORTE FIXO + Correcoes Taticas")
+            print("[LOOP] Gerando norte fixo das ideias humanas...")
+            north_star = generate_north_star(
+                invitation=self.config.invitation,
+                directive=self.config.directive,
+                human_ideas=self.config.human_ideas,
+                model=self.config.north_star_model,
+                temperature=0.3,  # Conservador para analise
+                max_tokens=1000,
+                api_key_override=self.config.api_key_override,
+                reasoning_effort=None,  # Nao precisa reasoning para analise
+            )
+            print(f"\n[LOOP] NORTE FIXO GERADO:")
+            print("-" * 60)
+            print(north_star)
+            print("-" * 60 + "\n")
+        else:
+            print("[LOOP] Modo: Feedback 100% dinamico (sem norte fixo)")
+        
         # Ideias iniciais da LLM
         current_llm_ideas = self._generate_initial_ideas()
         all_generated_ideas = list(current_llm_ideas)  # NOVO: Acumula histórico
@@ -164,7 +189,7 @@ class RefinementLoop:
             
             # ETAPA 2: PACKING
             print(f"[LOOP] Etapa 2/3: PACKING")
-            bullets = packing_step(
+            tactical_bullets = packing_step(
                 critique_json=critique_json,
                 model=self.config.model,
                 temperature=0.5,
@@ -172,6 +197,14 @@ class RefinementLoop:
                 api_key_override=self.config.api_key_override,
                 reasoning_effort=self.config.reasoning_effort,
             )
+            
+            # NOVO: Combinar norte fixo + bullets taticos
+            if self.config.use_north_star and north_star:
+                bullets = format_north_with_tactical(north_star, tactical_bullets)
+                print(f"[LOOP] Usando NORTE FIXO + correções táticas")
+            else:
+                bullets = tactical_bullets
+                print(f"[LOOP] Usando feedback 100% dinâmico")
             
             # ETAPA 3: GENERATION
             print(f"[LOOP] Etapa 3/3: GENERATION")
