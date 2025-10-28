@@ -92,6 +92,33 @@ def _parse_references_text(raw: str) -> List[str]:
 # --------------------------- embeddings -------------------------------------
 
 def get_embedder(model_name: str = "all-MiniLM-L6-v2", device: Optional[str] = None):
+    """
+    Inicializa um modelo de embeddings.
+    
+    Args:
+        model_name: Nome do modelo (sentence-transformers ou openai)
+        device: Device para sentence-transformers (cpu/cuda)
+    
+    Returns:
+        Modelo ou string "openai" para embeddings OpenAI
+    
+    Supported models:
+        - "all-MiniLM-L6-v2" (384D, local, gratis)
+        - "openai" ou "text-embedding-3-large" (3072D, API, ~$0.13/1M tokens)
+        - "text-embedding-3-small" (1536D, API, ~$0.02/1M tokens)
+    """
+    if model_name in ["openai", "text-embedding-3-large", "text-embedding-3-small"]:
+        # Verificar se OPENAI_API_KEY existe
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY nao encontrada no ambiente. "
+                "Necessaria para usar embeddings OpenAI."
+            )
+        # Retornar identificador especial
+        return model_name if model_name != "openai" else "text-embedding-3-large"
+    
+    # Sentence Transformers (local)
     if SentenceTransformer is None:
         raise RuntimeError("sentence-transformers nao instalado.")
     if device is None:
@@ -105,8 +132,68 @@ def get_embedder(model_name: str = "all-MiniLM-L6-v2", device: Optional[str] = N
 
 
 def embed_texts(model, texts: List[str]) -> np.ndarray:
-    X = model.encode(texts, normalize_embeddings=True, batch_size=64)
-    return np.asarray(X, dtype=float)
+    """
+    Gera embeddings para uma lista de textos.
+    
+    Args:
+        model: Modelo retornado por get_embedder()
+        texts: Lista de strings
+    
+    Returns:
+        Array numpy (N, D) com embeddings normalizados
+    """
+    # Detectar se e OpenAI ou Sentence Transformers
+    if isinstance(model, str) and "text-embedding" in model:
+        # OpenAI embeddings
+        return _embed_texts_openai(model, texts)
+    else:
+        # Sentence Transformers (local)
+        X = model.encode(texts, normalize_embeddings=True, batch_size=64)
+        return np.asarray(X, dtype=float)
+
+
+def _embed_texts_openai(model_name: str, texts: List[str]) -> np.ndarray:
+    """
+    Gera embeddings usando API OpenAI.
+    
+    Args:
+        model_name: "text-embedding-3-large" ou "text-embedding-3-small"
+        texts: Lista de strings
+    
+    Returns:
+        Array numpy (N, D) com embeddings normalizados
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise RuntimeError(
+            "openai nao instalado. Execute: pip install openai"
+        )
+    
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    # OpenAI permite batch de ate 2048 textos
+    # Vamos processar em chunks de 100 para seguranca
+    all_embeddings = []
+    chunk_size = 100
+    
+    for i in range(0, len(texts), chunk_size):
+        chunk = texts[i:i+chunk_size]
+        response = client.embeddings.create(
+            input=chunk,
+            model=model_name,
+            encoding_format="float"
+        )
+        chunk_embeddings = [item.embedding for item in response.data]
+        all_embeddings.extend(chunk_embeddings)
+    
+    # Converter para numpy e normalizar
+    X = np.array(all_embeddings, dtype=float)
+    # Normalizar (OpenAI ja retorna normalizado, mas garantir)
+    norms = np.linalg.norm(X, axis=1, keepdims=True)
+    X = X / np.maximum(norms, 1e-12)
+    
+    return X
 
 
 def cosine_distance(a: np.ndarray, b: np.ndarray) -> float:

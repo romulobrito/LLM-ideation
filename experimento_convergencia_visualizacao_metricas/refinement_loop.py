@@ -19,8 +19,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
+from experiment_iterativo import get_embedder, embed_texts, cosine_distance
 from refinement_critique import critique_step
 from refinement_packing import packing_step
 from refinement_generation import generation_step
@@ -103,23 +103,31 @@ class RefinementLoop:
         """Inicializa o modelo de embeddings."""
         print(f"[LOOP] Carregando embedder: {self.config.embedder_name}")
         
-        # Determinar device
+        # Determinar device (apenas para Sentence Transformers locais)
         device = self.config.device
         if device == "auto":
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            try:
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                device = "cpu"
         
-        self.embedder = SentenceTransformer(self.config.embedder_name, device=device)
-        print(f"[LOOP] Embedder carregado em: {device}")
+        # Usar get_embedder() que suporta tanto local quanto OpenAI
+        self.embedder = get_embedder(self.config.embedder_name, device=device)
+        
+        # Log do tipo de embedder
+        if isinstance(self.embedder, str) and "text-embedding" in self.embedder:
+            print(f"[LOOP] Embedder OpenAI carregado: {self.embedder}")
+        else:
+            print(f"[LOOP] Embedder local carregado em: {device}")
     
     def _embed_human_ideas(self) -> None:
         """Computa embeddings das ideias humanas."""
         print(f"[LOOP] Computando embeddings de {len(self.config.human_ideas)} ideias humanas...")
-        self.human_embeddings = self.embedder.encode(
-            self.config.human_ideas,
-            convert_to_numpy=True,
-            show_progress_bar=False
-        )
+        
+        # Usar embed_texts() que suporta tanto local quanto OpenAI
+        self.human_embeddings = embed_texts(self.embedder, self.config.human_ideas)
+        
         print(f"[LOOP] Embeddings humanos: shape {self.human_embeddings.shape}")
     
     def run(self) -> List[IterationResult]:
@@ -332,33 +340,25 @@ class RefinementLoop:
         Returns:
             Tupla (distancia_media, distancia_minima)
         """
-        # Embed ideias da LLM
-        llm_embeddings = self.embedder.encode(
-            llm_ideas,
-            convert_to_numpy=True,
-            show_progress_bar=False
-        )
+        # Embed ideias da LLM usando embed_texts() (suporta OpenAI e local)
+        llm_embeddings = embed_texts(self.embedder, llm_ideas)
         
-        # Calcular distancias coseno
-        # Normalizar vetores
-        human_norm = self.human_embeddings / np.linalg.norm(
-            self.human_embeddings, axis=1, keepdims=True
-        )
-        llm_norm = llm_embeddings / np.linalg.norm(
-            llm_embeddings, axis=1, keepdims=True
-        )
+        # Embeddings ja vem normalizados de embed_texts()
+        # Calcular distancias usando a funcao cosine_distance()
+        min_distances_per_llm = []
         
-        # Similaridade coseno: dot product de vetores normalizados
-        similarities = np.dot(llm_norm, human_norm.T)
+        for llm_emb in llm_embeddings:
+            # Para cada ideia LLM, calcular distancia para cada ideia humana
+            distances_to_humans = [
+                cosine_distance(llm_emb, human_emb)
+                for human_emb in self.human_embeddings
+            ]
+            # Pegar a menor distancia (ideia humana mais proxima)
+            min_dist = min(distances_to_humans)
+            min_distances_per_llm.append(min_dist)
         
-        # Distancia coseno: 1 - similaridade
-        distances = 1.0 - similarities
-        
-        # Para cada ideia LLM, pegar a menor distancia para qualquer ideia humana
-        min_distances_per_llm = distances.min(axis=1)
-        
-        avg_distance = float(min_distances_per_llm.mean())
-        min_distance = float(min_distances_per_llm.min())
+        avg_distance = float(np.mean(min_distances_per_llm))
+        min_distance = float(np.min(min_distances_per_llm))
         
         return avg_distance, min_distance
     
@@ -381,6 +381,7 @@ class RefinementLoop:
                 "patience": self.config.patience,
                 "delta_threshold": self.config.delta_threshold,
                 "num_ideas_per_iter": self.config.num_ideas_per_iter,
+                "num_human_ideas": len(self.config.human_ideas),  # NOVO: salvar quantas foram usadas
             },
             "converged": self.converged,
             "convergence_reason": self.convergence_reason,

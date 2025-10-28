@@ -66,6 +66,251 @@ load_env_vars()
 # Titulo principal
 st.title("🔄 Refinement Loop - Diversidade LLM")
 
+# Opção de carregar experimento anterior
+st.sidebar.markdown("---")
+st.sidebar.subheader("📂 Carregar Experimento Salvo")
+
+exp_dir = Path("exp_refinement")
+if exp_dir.exists() and (exp_dir / "summary.json").exists():
+    if st.sidebar.button("📊 Visualizar Último Experimento", use_container_width=True):
+        st.session_state['show_saved_exp'] = True
+else:
+    st.sidebar.info("Nenhum experimento salvo ainda")
+
+# Verificar se deve mostrar experimento salvo
+if st.session_state.get('show_saved_exp', False):
+    st.subheader("📊 Experimento Salvo")
+    
+    # Carregar summary
+    summary_file = exp_dir / "summary.json"
+    with open(summary_file, "r", encoding="utf-8") as f:
+        summary = json.load(f)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Iterações", summary["total_iterations"])
+    with col2:
+        st.metric("Convergiu?", "✅" if summary["converged"] else "❌")
+    with col3:
+        st.metric("Melhor Dist. Média", f"{summary['best_avg_distance']:.4f}")
+    with col4:
+        st.metric("Melhor Dist. Mínima", f"{summary['best_min_distance']:.4f}")
+    
+    # Gráfico de convergência
+    st.subheader("📈 Gráfico de Convergência")
+    
+    iterations = [item["iteration"] for item in summary["iterations"]]
+    avg_distances = [item["avg_distance"] for item in summary["iterations"]]
+    min_distances = [item["min_distance"] for item in summary["iterations"]]
+    
+    fig_conv = go.Figure()
+    fig_conv.add_trace(go.Scatter(
+        x=iterations, y=avg_distances,
+        mode='lines+markers', name='Dist. Média',
+        line=dict(color='blue', width=2), marker=dict(size=8)
+    ))
+    fig_conv.add_trace(go.Scatter(
+        x=iterations, y=min_distances,
+        mode='lines+markers', name='Dist. Mínima',
+        line=dict(color='green', width=2), marker=dict(size=8)
+    ))
+    fig_conv.update_layout(
+        xaxis_title="Iteração",
+        yaxis_title="Distância Coseno",
+        hovermode='x unified',
+        height=400
+    )
+    st.plotly_chart(fig_conv, use_container_width=True)
+    
+    # UMAP 3D
+    if UMAP_AVAILABLE:
+        st.subheader("🌐 Visualização UMAP 3D")
+        
+        try:
+            from experiment_iterativo import get_embedder, embed_texts, load_references_from_fs
+            
+            embedder_name = summary['config']['embedder']
+            with st.spinner(f"Carregando embedder `{embedder_name}`..."):
+                embedder = get_embedder(embedder_name)
+            
+            with st.spinner("Processando embeddings..."):
+                # Carregar TODAS as ideias humanas disponíveis
+                human_ideas_all = load_references_from_fs("ideas-exp/human")
+                human_embeddings_all = embed_texts(embedder, human_ideas_all)
+                
+                # Tentar descobrir quantas foram usadas no experimento
+                # Ler do summary (novo campo adicionado)
+                num_human_used = summary['config'].get('num_human_ideas', len(human_ideas_all))
+                
+                # Se o summary não tem essa info (experimentos antigos), assumir todas
+                if num_human_used > len(human_ideas_all):
+                    num_human_used = len(human_ideas_all)
+                
+                # Informar ao usuário
+                st.info(f"""
+                **📊 Ideias Humanas:**
+                - Total disponíveis: {len(human_ideas_all)}
+                - Usadas no experimento: {num_human_used}
+                - Não usadas (contexto): {len(human_ideas_all) - num_human_used}
+                """)
+                
+                all_embeddings = []
+                all_labels = []
+                all_types = []
+                all_iterations_viz = []
+                all_distances = []
+                all_used_status = []  # NOVO: rastrear se foi usada ou não
+                
+                # Adicionar ideias humanas (USADAS e NÃO USADAS)
+                for i, emb in enumerate(human_embeddings_all):
+                    all_embeddings.append(emb)
+                    all_labels.append(f"Humana {i+1}")
+                    
+                    # Determinar se foi usada no experimento
+                    if i < num_human_used:
+                        all_types.append("humana_usada")
+                        all_used_status.append("Usada")
+                    else:
+                        all_types.append("humana_nao_usada")
+                        all_used_status.append("Não Usada")
+                    
+                    all_iterations_viz.append(0)
+                    all_distances.append(0.0)
+                
+                # Iterações
+                for iter_num in range(1, summary["total_iterations"] + 1):
+                    iter_file = exp_dir / f"iteration_{iter_num:02d}.json"
+                    if iter_file.exists():
+                        with open(iter_file, "r", encoding="utf-8") as f:
+                            iter_data = json.load(f)
+                        
+                        iter_embeddings = embed_texts(embedder, iter_data["generated_ideas"])
+                        
+                        for i, emb in enumerate(iter_embeddings):
+                            all_embeddings.append(emb)
+                            all_labels.append(f"Iter {iter_num} - Ideia {i+1}")
+                            all_types.append("gerada")
+                            all_used_status.append("N/A")
+                            all_iterations_viz.append(iter_num)
+                            
+                            # Calcular distância apenas para as humanas USADAS
+                            human_emb_used = human_embeddings_all[:num_human_used]
+                            dists = [np.dot(emb, h_emb) for h_emb in human_emb_used]
+                            min_dist = 1.0 - max(dists)
+                            all_distances.append(min_dist)
+                
+                embeddings_array = np.array(all_embeddings)
+                
+                n_neighbors = min(15, len(embeddings_array) - 1)
+                umap_reducer = UMAP(
+                    n_components=3, random_state=42,
+                    n_neighbors=n_neighbors, min_dist=0.1, metric='cosine'
+                )
+                embeddings_umap = umap_reducer.fit_transform(embeddings_array)
+                
+                df_umap = pd.DataFrame({
+                    'x': embeddings_umap[:, 0],
+                    'y': embeddings_umap[:, 1],
+                    'z': embeddings_umap[:, 2],
+                    'label': all_labels,
+                    'tipo': all_types,
+                    'used_status': all_used_status,
+                    'iteracao': all_iterations_viz,
+                    'distancia': all_distances
+                })
+                
+                fig_umap = go.Figure()
+                
+                # Humanas USADAS (vermelho escuro)
+                df_human_used = df_umap[df_umap['tipo'] == 'humana_usada']
+                if len(df_human_used) > 0:
+                    fig_umap.add_trace(go.Scatter3d(
+                        x=df_human_used['x'], y=df_human_used['y'], z=df_human_used['z'],
+                        mode='markers',
+                        marker=dict(size=12, color='darkred', symbol='diamond', line=dict(color='black', width=2)),
+                        name='🔴 Humanas (USADAS)',
+                        text=df_human_used['label'],
+                        hovertemplate="<b>%{text} - USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                    ))
+                
+                # Humanas NÃO USADAS (laranja claro)
+                df_human_not_used = df_umap[df_umap['tipo'] == 'humana_nao_usada']
+                if len(df_human_not_used) > 0:
+                    fig_umap.add_trace(go.Scatter3d(
+                        x=df_human_not_used['x'], y=df_human_not_used['y'], z=df_human_not_used['z'],
+                        mode='markers',
+                        marker=dict(size=10, color='orange', symbol='diamond', line=dict(color='darkorange', width=1), opacity=0.5),
+                        name='🟠 Humanas (NÃO USADAS)',
+                        text=df_human_not_used['label'],
+                        hovertemplate="<b>%{text} - NÃO USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                    ))
+                
+                # Geradas
+                df_generated = df_umap[df_umap['tipo'] == 'gerada']
+                if len(df_generated) > 0:
+                    best_idx = df_generated['distancia'].idxmin()
+                    best_row = df_generated.loc[best_idx]
+                    df_gen_normal = df_generated.drop(best_idx)
+                    
+                    if len(df_gen_normal) > 0:
+                        fig_umap.add_trace(go.Scatter3d(
+                            x=df_gen_normal['x'], y=df_gen_normal['y'], z=df_gen_normal['z'],
+                            mode='markers',
+                            marker=dict(
+                                size=6, color=df_gen_normal['iteracao'],
+                                colorscale='Viridis',
+                                colorbar=dict(title="Iteração", x=1.15),
+                                symbol='circle'
+                            ),
+                            name='Ideias Geradas',
+                            text=df_gen_normal['label'],
+                            customdata=df_gen_normal['distancia'],
+                            hovertemplate="<b>%{text}</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<br>Dist: %{customdata:.4f}<extra></extra>"
+                        ))
+                    
+                    fig_umap.add_trace(go.Scatter3d(
+                        x=[best_row['x']], y=[best_row['y']], z=[best_row['z']],
+                        mode='markers',
+                        marker=dict(size=20, color='gold', symbol='diamond', line=dict(color='orange', width=4)),
+                        name='⭐ Melhor Ideia',
+                        text=[best_row['label']],
+                        customdata=[best_row['distancia']],
+                        hovertemplate="<b>⭐ %{text}</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<br>Dist: %{customdata:.4f}<extra></extra>"
+                    ))
+                
+                fig_umap.update_layout(
+                    scene=dict(xaxis_title="UMAP 1", yaxis_title="UMAP 2", zaxis_title="UMAP 3"),
+                    title="Evolução das Ideias (UMAP 3D)",
+                    height=700
+                )
+                
+                st.plotly_chart(fig_umap, use_container_width=True)
+                
+        except Exception as e:
+            st.error(f"❌ Erro ao gerar visualizações: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+    
+    # Tabela de resultados
+    st.subheader("📋 Tabela de Resultados")
+    df_results = pd.DataFrame([
+        {
+            "Iteração": item["iteration"],
+            "Dist. Média": f"{item['avg_distance']:.4f}",
+            "Dist. Mínima": f"{item['min_distance']:.4f}",
+            "Num Ideias": item["num_ideas"]
+        }
+        for item in summary["iterations"]
+    ])
+    st.dataframe(df_results, use_container_width=True, hide_index=True)
+    
+    # Botão para voltar
+    if st.button("🔙 Voltar para Configuração", type="primary"):
+        st.session_state['show_saved_exp'] = False
+        st.rerun()
+    
+    st.stop()
+
 # # Aviso sobre correções implementadas
 # st.info("""
 # **✅ CORREÇÕES IMPLEMENTADAS (v2.0):**
@@ -162,12 +407,60 @@ else:
     )
 
 # Embedder
+st.sidebar.subheader("🧮 Modelo de Embeddings")
+
 embedder_name = st.sidebar.selectbox(
-    "Modelo de Embeddings",
-    ["all-MiniLM-L6-v2", "all-mpnet-base-v2", "paraphrase-multilingual-MiniLM-L12-v2"],
+    "Modelo:",
+    [
+        "all-MiniLM-L6-v2",
+        "text-embedding-3-large",
+        "text-embedding-3-small",
+        "all-mpnet-base-v2",
+        "paraphrase-multilingual-MiniLM-L12-v2"
+    ],
     index=0,
-    help="Modelo para gerar embeddings e calcular distancias"
+    help="Modelo para gerar embeddings e calcular distancias semanticas"
 )
+
+# Info sobre embeddings OpenAI
+if "text-embedding" in embedder_name:
+    st.sidebar.info(f"""
+    **🌐 OpenAI Embeddings**
+    
+    **Modelo**: {embedder_name}
+    
+    **Dimensões**:
+    - 3-large: 3072D (melhor qualidade)
+    - 3-small: 1536D (mais rapido)
+    
+    **Custo**: ~$0.13/1M tokens (3-large)
+    
+    **Vantagem**: Captura nuances e detalhes que 
+    embeddings locais (384D) nao detectam.
+    
+    ⚠️ **Requer**: OPENAI_API_KEY no .env
+    """)
+    
+    # Verificar se OPENAI_API_KEY existe
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        st.sidebar.error("""
+        ❌ **ERRO**: OPENAI_API_KEY nao encontrada!
+        
+        Adicione ao arquivo `.env`:
+        ```
+        OPENAI_API_KEY=sk-...
+        ```
+        """)
+else:
+    st.sidebar.success(f"""
+    **💻 Local (Sentence Transformers)**
+    
+    **Modelo**: {embedder_name}
+    **Dimensões**: 384D (MiniLM) ou 768D (MPNet)
+    **Custo**: Grátis (roda localmente)
+    **Device**: CPU/CUDA
+    """)
 
 # Device
 device = st.sidebar.selectbox(
@@ -648,11 +941,9 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 # Adicionar ideias geradas de cada iteração
                 for result in results:
                     # Embeddings das ideias geradas nesta iteração
-                    iter_embeddings = loop.embedder.encode(
-                        result.generated_ideas,
-                        convert_to_numpy=True,
-                        normalize_embeddings=True
-                    )
+                    # Usar embed_texts() para suportar tanto OpenAI quanto local
+                    from experiment_iterativo import embed_texts
+                    iter_embeddings = embed_texts(loop.embedder, result.generated_ideas)
                     
                     for i, emb in enumerate(iter_embeddings):
                         all_embeddings.append(emb)
