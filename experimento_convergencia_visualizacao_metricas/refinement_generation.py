@@ -54,9 +54,10 @@ def generation_step(
     num_ideas: int = 5,
     model: str = "gpt-4o-mini",
     temperature: float = 0.8,
-    max_tokens: int = 2000,
+    max_tokens: int = 4000,
     api_key_override: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
+    human_examples: Optional[List[str]] = None,
 ) -> List[str]:
     """
     Etapa GENERATION: Gera novas ideias com diretiva revisada.
@@ -68,16 +69,19 @@ def generation_step(
         num_ideas: Numero de ideias a gerar (default: 5)
         model: Modelo LLM a usar (default: gpt-4o-mini)
         temperature: Temperatura para geracao (default: 0.8)
-        max_tokens: Maximo de tokens (default: 2000)
+        max_tokens: Maximo de tokens (default: 4000)
         api_key_override: API key alternativa (opcional)
         reasoning_effort: Reasoning effort para modelos que suportam (opcional)
+        human_examples: Exemplos de ideias humanas para few-shot learning (opcional)
     
     Returns:
         Lista de ideias geradas (strings)
     
     Example:
         >>> bullets = "- DO: Use subtle encounters\\n- DON'T: Use whimsical titles"
-        >>> ideas = generation_step("Invitation...", "Directive...", bullets, num_ideas=3)
+        >>> examples = ["Example 1...", "Example 2..."]
+        >>> ideas = generation_step("Invitation...", "Directive...", bullets, 
+        ...                         num_ideas=3, human_examples=examples)
         >>> print(len(ideas))
         3
     """
@@ -91,6 +95,32 @@ def generation_step(
         num_ideas=num_ideas
     )
     
+    # Adicionar exemplos humanos (few-shot learning) se fornecidos
+    if human_examples and len(human_examples) > 0:
+        # Usar 2-3 exemplos (não todos para não explodir o prompt)
+        num_examples = min(3, len(human_examples))
+        examples_to_use = human_examples[:num_examples]
+        
+        examples_text = "\n\nEXAMPLES OF DESIRED STYLE AND QUALITY:\n"
+        examples_text += "Study these examples carefully to understand the tone, structure, and craft:\n\n"
+        
+        for i, example in enumerate(examples_to_use, 1):
+            # Truncar para ~200 palavras se muito longo
+            words = example.split()
+            if len(words) > 200:
+                truncated = " ".join(words[:200]) + "..."
+            else:
+                truncated = example
+            
+            examples_text += f"EXAMPLE {i}:\n{truncated}\n\n"
+        
+        examples_text += "---\n\nNow, generate your own ideas following the STYLE and CRAFT shown above, "
+        examples_text += "but with COMPLETELY NEW stories, characters, and concepts:\n"
+        
+        prompt += examples_text
+        
+        print(f"[GENERATION] Usando {num_examples} exemplos humanos para few-shot learning")
+    
     # Chamar LLM
     print(f"[GENERATION] Chamando modelo {model} para gerar {num_ideas} ideias...")
     response = call_deepseek(
@@ -100,7 +130,7 @@ def generation_step(
         temperature=temperature,
         api_key_override=api_key_override,
         reasoning_effort=reasoning_effort,
-        exclude_reasoning=True,  # Para GPT-5: pegar apenas output final
+        exclude_reasoning=None,  # Auto-detecção: True para DeepSeek, False para GPT-5
     )
     
     # Parsear ideias

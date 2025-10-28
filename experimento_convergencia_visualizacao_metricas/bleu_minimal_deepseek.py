@@ -377,7 +377,7 @@ def _select_openrouter_api_key(model: str, override: str | None = None) -> str:
         "Nenhuma chave OpenRouter encontrada. Defina OPENROUTER_API_KEY ou OPENROUTER_API_KEY_<VENDOR>."
     )
 
-def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: int=400, temperature: float=0.3, image_url: str="", api_key_override: str | None = None, reasoning_effort: str | None = None, exclude_reasoning: bool = False) -> str:
+def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: int=400, temperature: float=0.3, image_url: str="", api_key_override: str | None = None, reasoning_effort: str | None = None, exclude_reasoning: bool | None = None) -> str:
     """
     Generate text using OpenRouter OR OpenAI direct API.
     - Models with '/' (e.g., 'deepseek/deepseek-chat', 'openai/gpt-4') use OpenRouter
@@ -392,10 +392,13 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
         temperature: Temperatura (0.0-2.0)
         image_url: URL de imagem para modelos de visao
         api_key_override: Chave de API personalizada
-        reasoning_effort: Nivel de reasoning para modelos que suportam (low, medium, high)
-        exclude_reasoning: Se True, API retorna apenas output final sem reasoning
-                          Se False, API retorna reasoning + output (default: False, necessario para GPT-5)
-                          NOTA: GPT-5 precisa de False, mas priorizamos extrair content em vez de reasoning
+        reasoning_effort: Nivel de reasoning para modelos que suportam (low, medium, high, minimal)
+        exclude_reasoning: Controla se o reasoning deve ser excluido da resposta
+                          - None (default): AUTO-DETECÇÃO baseada no modelo
+                            * DeepSeek R1/V3.2: exclude=True (reasoning atrapalha JSON)
+                            * GPT-5: exclude=False (reasoning necessario)
+                          - True: Força exclusão do reasoning
+                          - False: Força inclusão do reasoning
     
     Returns:
         Texto gerado pelo modelo
@@ -445,20 +448,53 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
         else:
             msgs.append({"role": "user", "content": prompt})
 
-        # Optional reasoning body for models that support it (e.g., gpt-5)
+        # Optional reasoning body for models that support it (e.g., gpt-5, deepseek-r1, deepseek-v3.2-exp)
         # Nota: OpenAI direta pode nao suportar extra_body, entao so adiciona se for OpenRouter
         # IMPORTANTE: 
-        #   - exclude=True: API tenta retornar apenas content final (mas GPT-5 falha)
+        #   - exclude=True: API retorna apenas content final (RECOMENDADO para DeepSeek)
         #   - exclude=False: API retorna reasoning + content (GPT-5 precisa disso)
-        # Solucao: usamos exclude=False e extraimos o content final via codigo
+        # Solucao: 
+        #   - DeepSeek R1/V3.2: SEMPRE exclude=True (reasoning atrapalha parsing JSON)
+        #   - GPT-5: exclude=False (reasoning necessario)
         extra_body = None
-        if reasoning_effort and use_openrouter:
+        
+        # Detectar modelos DeepSeek que usam reasoning
+        is_deepseek_reasoning = "deepseek-r1" in model.lower() or "deepseek-v3.2" in model.lower()
+        is_gpt5 = "gpt-5" in model.lower()
+        
+        if use_openrouter and (reasoning_effort or is_deepseek_reasoning or is_gpt5):
+            # Logica de detecção automática para exclude_reasoning:
+            # - None: usa detecção automática baseada no modelo
+            # - True/False: respeita o valor explícito
+            if exclude_reasoning is None:
+                # Auto-detecção:
+                # DeepSeek (todos): exclude=True (suprimir reasoning para pegar só output final)
+                # GPT-5: exclude=False (reasoning necessário para funcionar)
+                should_exclude = is_deepseek_reasoning and not is_gpt5
+                
+                if is_deepseek_reasoning and not is_gpt5:
+                    print(f"[DEBUG] DeepSeek reasoning model detectado: suprimindo reasoning (exclude=True)")
+                elif is_gpt5:
+                    print(f"[DEBUG] GPT-5 detectado: mantendo reasoning (exclude=False)")
+            else:
+                # Valor explícito fornecido
+                should_exclude = exclude_reasoning
+            
             extra_body = {
                 "reasoning": {
-                    "effort": reasoning_effort,
-                    "exclude": exclude_reasoning  # False = necessario para GPT-5 funcionar
+                    "exclude": should_exclude
                 }
             }
+            
+            # Se reasoning_effort foi especificado, adiciona-lo tambem
+            if reasoning_effort:
+                extra_body["reasoning"]["effort"] = reasoning_effort
+            
+            # Debug messages
+            if is_deepseek_reasoning and should_exclude:
+                print(f"[DEBUG] DeepSeek reasoning model detectado: suprimindo reasoning (exclude=True)")
+            elif is_gpt5 and not should_exclude:
+                print(f"[DEBUG] GPT-5 detectado: mantendo reasoning (exclude=False)")
 
         # Criar parametros da chamada
         call_params = {
@@ -477,14 +513,30 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
         except Exception as api_error:
             # Tentar extrair mensagem de erro da resposta da API
             error_msg = str(api_error)
+            error_details = ""
+            
             if hasattr(api_error, 'response'):
                 try:
                     error_response = api_error.response
                     if hasattr(error_response, 'text'):
-                        error_msg = f"{error_msg}\nResposta da API: {error_response.text[:500]}"
+                        error_text = error_response.text
+                        error_details = f"\n\nResposta completa da API:\n{error_text[:1000]}"
+                        
+                        # Tentar parsear como JSON para extrair mensagem de erro
+                        try:
+                            import json as json_lib
+                            error_json = json_lib.loads(error_text)
+                            if 'error' in error_json:
+                                error_info = error_json['error']
+                                if isinstance(error_info, dict):
+                                    error_msg = error_info.get('message', error_msg)
+                                    error_details = f"\n\nErro OpenRouter: {error_info}"
+                        except:
+                            pass
                 except:
                     pass
-            raise RuntimeError(f"Erro na chamada da API: {error_msg}")
+            
+            raise RuntimeError(f"Erro na chamada da API: {error_msg}{error_details}")
         
         # Extracao robusta de texto (cobre respostas multimodais e modelos de raciocinio)
         if not getattr(resp, "choices", None) or len(resp.choices) == 0:

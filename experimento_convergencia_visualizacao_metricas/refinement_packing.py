@@ -18,26 +18,34 @@ from bleu_minimal_deepseek import call_deepseek
 
 
 # Template do prompt PACKING
-PACKING_PROMPT_TEMPLATE = """You are creating writing directives based on the analysis below.
+PACKING_PROMPT_TEMPLATE = """You are creating writing directives based on CONTRASTIVE FEEDBACK below.
 
 Original directive:
 "- Center your story around two characters who like each other but don't get a happily ever after."
 
-Analysis of patterns (DO = reinforce, DON'T = avoid):
+Contrastive Feedback (replace/add/keep actions):
 ------
 {json_critique}
 ------
 
 Create a bulleted list of writing directives:
 1. First bullet: ALWAYS include the original directive exactly as shown above
-2. Next bullets (up to 7 total): Convert each DO/DON'T pattern into a clear, actionable directive
-   - For "do" patterns: "- DO: [specific action]"
-   - For "don't" patterns: "- DON'T: [specific action to avoid]"
-3. Be SPECIFIC and ACTIONABLE (avoid vague language)
-4. Do NOT mention specific story examples or character names
-5. Focus on craft elements: tone, structure, character development, pacing, etc.
 
-Output ONLY the bulleted list, nothing else:"""
+2. For each feedback item, create a directive:
+   - "replace" actions: "- REPLACE [from] WITH [to]"
+   - "add" actions: "- ADD: [description]"
+   - "keep" actions: "- KEEP: [description]"
+
+3. CRITICAL: Be ULTRA-SPECIFIC and CONTRASTIVE
+   ✅ GOOD: "- REPLACE archetypal unnamed characters WITH named characters who have specific occupations and backstories"
+   ✅ GOOD: "- ADD sensory details about settings (sounds, smells, textures)"
+   ❌ BAD: "- Improve character development"
+   ❌ BAD: "- Don't use gimmicks"
+
+4. Do NOT mention specific story examples or character names from the sets
+5. Focus on CRAFT ELEMENTS: character types, setting details, plot structure, emotional tone, pacing
+
+Output ONLY the bulleted list (up to 8 bullets total), nothing else:"""
 
 
 def packing_step(
@@ -49,10 +57,11 @@ def packing_step(
     reasoning_effort: Optional[str] = None,
 ) -> str:
     """
-    Etapa PACKING: Consolida JSON em bullets.
+    Etapa PACKING: Consolida feedback contrastivo em bullets acionáveis.
     
     Args:
-        critique_json: Lista de dicionarios com vibe_pattern e vibe_description
+        critique_json: Lista de dicionarios com feedback contrastivo
+                      (action: replace/add/keep, from/to/description)
         model: Modelo LLM a usar (default: gpt-4o-mini)
         temperature: Temperatura para geracao (default: 0.5)
         max_tokens: Maximo de tokens (default: 1000)
@@ -60,13 +69,13 @@ def packing_step(
         reasoning_effort: Reasoning effort para modelos que suportam (opcional)
     
     Returns:
-        String com bullets formatados (DO/DON'T)
+        String com bullets formatados (REPLACE/ADD/KEEP)
     
     Example:
-        >>> critique = [{"vibe_pattern": "do", "vibe_description": "Use metaphors"}]
+        >>> critique = [{"action": "replace", "from": "gimmicks", "to": "character depth"}]
         >>> result = packing_step(critique)
         >>> print(result)
-        "- DO: Use metaphors to convey emotions."
+        "- REPLACE gimmicky concepts WITH character-driven narratives"
     """
     import json
     
@@ -85,7 +94,7 @@ def packing_step(
         temperature=temperature,
         api_key_override=api_key_override,
         reasoning_effort=reasoning_effort,
-        exclude_reasoning=True,  # Para GPT-5: pegar apenas output final
+        exclude_reasoning=None,  # Auto-detecção: True para DeepSeek, False para GPT-5
     )
     
     # Limpar e formatar resposta

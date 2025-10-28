@@ -113,9 +113,42 @@ elif provider == "GPT-4o via OpenRouter":
     st.sidebar.info(f"📌 Modelo: {model}")
     st.sidebar.success("✅ **ESTÁVEL**: Recomendado para uso em produção")
 elif provider == "DeepSeek (OpenRouter)":
-    model = "deepseek/deepseek-chat"
-    st.sidebar.info(f"📌 Modelo: {model}")
-    st.sidebar.success("✅ **ESTÁVEL**: Barato e eficiente")
+    model = st.sidebar.selectbox(
+        "Modelo:",
+        ["deepseek/deepseek-chat", "deepseek/deepseek-v3.2-exp", "deepseek/deepseek-r1"],
+        index=0,
+        help="Modelos DeepSeek via OpenRouter"
+    )
+    
+    if model == "deepseek/deepseek-r1":
+        st.sidebar.warning("""
+        ⚠️ **ATENÇÃO**: `deepseek-r1` pode falhar no CRITIQUE!
+        
+        O modelo retorna apenas reasoning sem JSON final.
+        
+        **RECOMENDAÇÃO**: Use `deepseek-chat` ou `deepseek-v3.2-exp`.
+        """)
+    elif model == "deepseek/deepseek-v3.2-exp":
+        st.sidebar.warning("""
+        🆕 **EXPERIMENTAL**: DeepSeek V3.2-Exp
+        
+        ⚠️ **ATENÇÃO**: Pode falhar com prompts grandes!
+        
+        Problemas conhecidos:
+        - Rate limit mais restritivo
+        - Timeout em prompts longos
+        
+        **RECOMENDAÇÃO**: Use `deepseek-chat` para estabilidade.
+        """)
+    else:
+        st.sidebar.success("✅ **ESTÁVEL**: Funciona bem, barato e eficiente!")
+    
+    st.sidebar.info("""
+    **📋 Modelos:**
+    - `deepseek-chat`: ✅ Recomendado (estável)
+    - `deepseek-v3.2-exp`: 🆕 Novo (experimental)
+    - `deepseek-r1`: ⚠️ Pode falhar no CRITIQUE
+    """)
 elif provider == "GPT-5 (OpenRouter) ⚠️ Experimental":
     model = "openai/gpt-5"
     st.sidebar.info(f"📌 Modelo: {model}")
@@ -195,6 +228,15 @@ temperature = st.sidebar.slider(
 
 if temperature > 0.7:
     st.sidebar.warning("⚠️ Temperature alta (>0.7) pode causar oscilação. Recomenda-se 0.3-0.5 para convergência.")
+
+max_tokens = st.sidebar.slider(
+    "Max Tokens",
+    min_value=1000,
+    max_value=8000,
+    value=4000,
+    step=500,
+    help="Número máximo de tokens por resposta. Maior = respostas mais completas, mas mais caro. DeepSeek: 4000+, GPT-4o: 2000-4000"
+)
 
 reasoning_effort = st.sidebar.selectbox(
     "Reasoning Effort",
@@ -430,6 +472,7 @@ if run_button:
         delta_threshold=delta_threshold,
         num_ideas_per_iter=num_ideas_per_iter,
         temperature=temperature,
+        max_tokens=max_tokens,
         reasoning_effort=reasoning_arg,
         output_dir=Path(output_dir),
     )

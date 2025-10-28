@@ -56,6 +56,7 @@ class RefinementConfig:
     delta_threshold: float = 0.01
     num_ideas_per_iter: int = 5
     temperature: float = 0.8
+    max_tokens: int = 4000
     api_key_override: Optional[str] = None
     reasoning_effort: Optional[str] = None
     output_dir: Optional[Path] = None
@@ -144,9 +145,10 @@ class RefinementLoop:
             # ETAPA 1: CRITIQUE
             print(f"[LOOP] Etapa 1/3: CRITIQUE")
             # CORREÇÃO: Usar TODAS as ideias geradas até agora, não apenas as últimas
-            # Limitar a 20 ideias mais recentes para não explodir o prompt
-            critique_llm_ideas = all_generated_ideas[-20:] if len(all_generated_ideas) > 20 else all_generated_ideas
-            print(f"[LOOP] Critique usando {len(critique_llm_ideas)} ideias acumuladas")
+            # Limitar a 10 ideias mais recentes para evitar prompt muito longo
+            # (DeepSeek V3.2-Exp tem problemas com prompts >8K tokens)
+            critique_llm_ideas = all_generated_ideas[-10:] if len(all_generated_ideas) > 10 else all_generated_ideas
+            print(f"[LOOP] Critique usando {len(critique_llm_ideas)} ideias acumuladas (max 10 para evitar overflow)")
             
             critique_json = critique_step(
                 invitation=self.config.invitation,
@@ -155,7 +157,7 @@ class RefinementLoop:
                 llm_ideas=critique_llm_ideas,
                 model=self.config.model,
                 temperature=0.3,  # REDUZIDO: 0.7 → 0.3 para análise mais consistente
-                max_tokens=2000,
+                max_tokens=self.config.max_tokens,
                 api_key_override=self.config.api_key_override,
                 reasoning_effort=self.config.reasoning_effort,
             )
@@ -180,9 +182,10 @@ class RefinementLoop:
                 num_ideas=self.config.num_ideas_per_iter,
                 model=self.config.model,
                 temperature=self.config.temperature,
-                max_tokens=2000,
+                max_tokens=self.config.max_tokens,
                 api_key_override=self.config.api_key_override,
                 reasoning_effort=self.config.reasoning_effort,
+                human_examples=self.config.human_ideas,  # NOVO: Few-shot learning
             )
             
             # Calcular distancias
@@ -277,9 +280,10 @@ class RefinementLoop:
             num_ideas=self.config.num_ideas_per_iter,
             model=self.config.model,
             temperature=self.config.temperature,
-            max_tokens=2000,
+            max_tokens=self.config.max_tokens,
             api_key_override=self.config.api_key_override,
             reasoning_effort=self.config.reasoning_effort,
+            human_examples=self.config.human_ideas,  # NOVO: Few-shot desde o início
         )
         
         print(f"[LOOP] Geradas {len(initial_ideas)} ideias iniciais")

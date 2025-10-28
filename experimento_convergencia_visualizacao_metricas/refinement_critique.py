@@ -43,31 +43,55 @@ SET B:
 {llm_ideas}
 ------
 
-Your task: Analyze the characteristic vibes/patterns in SET B and determine which ones should be reinforced (DO) or avoided (DON'T) to make SET B more similar to SET A.
+Your task: Provide CONTRASTIVE FEEDBACK to make SET B more similar to SET A.
 
-Follow this process:
-1) Identify the overall vibes and patterns in SET A
-2) Identify the overall vibes and patterns in SET B
-3) For each significant vibe/pattern in SET B:
-   - If it MATCHES a vibe in SET A → mark as "do" (reinforce this)
-   - If it CONFLICTS with SET A's vibes → mark as "don't" (avoid this)
-4) Additionally, identify vibes present in SET A but MISSING in SET B → mark as "do" (add this)
+CRITICAL: For each pattern, use this format:
+1) CONFLICTS (what SET B does wrong):
+   - Identify SPECIFIC element in SET B (e.g., "archetypal unnamed characters")
+   - Identify CORRESPONDING element in SET A (e.g., "named characters with detailed backstories")
+   - Output: {{"action": "replace", "from": "what SET B has", "to": "what SET A has"}}
 
-Generate a JSON array where each entry has:
-{{
-    "vibe_pattern": "[do|don't]",
-    "vibe_description": "<describe the vibe/pattern clearly and specifically>"
-}}
+2) MATCHES (what SET B does right):
+   - Identify element present in BOTH sets
+   - Output: {{"action": "keep", "description": "what to keep doing"}}
+
+3) MISSING (what SET A has that SET B lacks):
+   - Identify element in SET A but absent in SET B
+   - Output: {{"action": "add", "description": "what to add"}}
+
+EXAMPLES OF GOOD FEEDBACK:
+✅ {{"action": "replace", "from": "Gimmicky concepts centered on objects", "to": "Character-driven stories with emotional depth"}}
+✅ {{"action": "add", "description": "Named characters with specific backstories and occupations"}}
+✅ {{"action": "keep", "description": "Bittersweet endings without forced resolution"}}
+
+❌ BAD (too vague): {{"action": "replace", "from": "Bad writing", "to": "Good writing"}}
+❌ BAD (not contrastive): {{"action": "don't", "description": "Don't use gimmicks"}}
 
 CRITICAL INSTRUCTIONS:
-- Focus on ACTIONABLE patterns (tone, structure, character development, emotional arc, etc.)
-- Be SPECIFIC: "Characters lack names and backstories" is better than "underdeveloped characters"
-- Output ONLY the JSON array at the end
-- NO markdown fences (```), NO comments, NO trailing commas
-- Use only standard ASCII quotes (")
-- Format: [{{"vibe_pattern": "do/don't", "vibe_description": "..."}}]
+- Be ULTRA-SPECIFIC: mention concrete elements (character types, settings, plot devices, tone markers)
+- ALWAYS provide "from" AND "to" for "replace" actions
+- Focus on CRAFT ELEMENTS: character development, setting details, emotional arc, pacing, dialogue style
+- Output 5-8 feedback items total
 
-Output the JSON array now:"""
+🚨 CRITICAL OUTPUT FORMAT 🚨
+YOU MUST END YOUR RESPONSE WITH THE JSON ARRAY.
+DO NOT STOP BEFORE GENERATING THE JSON.
+After any analysis or thinking, YOU MUST write:
+
+[
+  {{"action": "replace", "from": "...", "to": "..."}},
+  {{"action": "add", "description": "..."}},
+  {{"action": "keep", "description": "..."}}
+]
+
+RULES:
+- NO markdown fences (```)
+- NO comments (//)
+- NO trailing commas
+- Use ONLY standard ASCII quotes (")
+- END with the closing bracket ]
+
+NOW GENERATE THE JSON ARRAY:"""
 
 
 def critique_step(
@@ -77,12 +101,12 @@ def critique_step(
     llm_ideas: List[str],
     model: str = "gpt-4o-mini",
     temperature: float = 0.7,
-    max_tokens: int = 2000,
+    max_tokens: int = 4000,
     api_key_override: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
 ) -> List[Dict[str, str]]:
     """
-    Etapa CRITIQUE: Compara vibes e retorna JSON com padroes DO/DON'T.
+    Etapa CRITIQUE: Compara vibes e retorna JSON com feedback contrastivo.
     
     Args:
         invitation: Convite do concurso de escrita
@@ -91,19 +115,22 @@ def critique_step(
         llm_ideas: Lista de ideias geradas pela LLM
         model: Modelo LLM a usar (default: gpt-4o-mini)
         temperature: Temperatura para geracao (default: 0.7)
-        max_tokens: Maximo de tokens (default: 2000)
+        max_tokens: Maximo de tokens (default: 4000)
         api_key_override: API key alternativa (opcional)
         reasoning_effort: Reasoning effort para modelos que suportam (opcional)
     
     Returns:
-        Lista de dicionarios com vibe_pattern e vibe_description
+        Lista de dicionarios com feedback contrastivo:
+        - action: "replace", "add", ou "keep"
+        - from/to: para "replace" (o que substituir e pelo que)
+        - description: para "add" e "keep"
     
     Example:
         >>> human = ["Idea 1...", "Idea 2..."]
         >>> llm = ["Idea A...", "Idea B..."]
         >>> result = critique_step("Invitation...", "Directive...", human, llm)
-        >>> print(result[0]["vibe_pattern"])
-        "don't"
+        >>> print(result[0])
+        {"action": "replace", "from": "...", "to": "..."}
     """
     # Formatar ideias humanas
     human_ideas_str = "\n---\n".join(human_ideas)
@@ -264,7 +291,33 @@ def _parse_json_response(response: str) -> List[Dict[str, str]]:
             print(f"[CRITIQUE] Tentativa 2 falhou: {e}")
             pass
     
-    # Tentativa 3: Buscar array JSON no texto (GPT-5 reasoning: tentar do fim para o inicio)
+    # Tentativa 3: Extrair JSONs numerados (DeepSeek V3.2 coloca numeros: 1. {...}, 2. {...})
+    # Exemplo: "1. {"action": "replace", ...}\n\n2. {"action": "add", ...}"
+    try:
+        # Regex para encontrar objetos JSON precedidos por numeros opcionais
+        numbered_json_pattern = r'(?:^\d+\.\s*)?(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})'
+        matches = re.findall(numbered_json_pattern, response, re.MULTILINE)
+        
+        if matches and len(matches) >= 3:  # Pelo menos 3 items para ser valido
+            parsed_items = []
+            for match in matches:
+                try:
+                    # Sanitizar e parsear cada objeto JSON individualmente
+                    sanitized_obj = _json_sanitize(match)
+                    obj = json.loads(sanitized_obj)
+                    if isinstance(obj, dict) and "action" in obj:
+                        parsed_items.append(obj)
+                except json.JSONDecodeError:
+                    continue
+            
+            if len(parsed_items) >= 3:
+                print(f"[CRITIQUE] JSON extraido de items numerados ({len(parsed_items)} items)")
+                return parsed_items
+    except Exception as e:
+        print(f"[CRITIQUE] Tentativa 3 (numerados) falhou: {e}")
+        pass
+    
+    # Tentativa 4: Buscar array JSON no texto (GPT-5 reasoning: tentar do fim para o inicio)
     # GPT-5 coloca reasoning text ANTES do JSON final, entao o ultimo match eh mais confiavel
     try:
         all_json_matches = list(re.finditer(r'\[\s*\{[\s\S]*?\}\s*\]', response, re.DOTALL))
@@ -294,16 +347,50 @@ def _parse_json_response(response: str) -> List[Dict[str, str]]:
         except json.JSONDecodeError:
             pass
     
-    # Tentativa 4: Remover texto antes/depois do primeiro [ e ultimo ]
+    # Tentativa 4a: Buscar JSON array DEPOIS de texto explicativo/reasoning
+    # DeepSeek V3.2-Exp tende a gerar: "[reasoning text...] JSON array:"
+    # Procurar por "JSON array:" ou "Output:" seguido de [...]
+    try:
+        # Buscar por padrões que indicam início do JSON
+        patterns = [
+            r'JSON array:\s*(\[[\s\S]*\])',
+            r'NOW GENERATE THE JSON ARRAY:\s*(\[[\s\S]*\])',
+            r'Output the JSON array now:\s*(\[[\s\S]*\])',
+            r'Here is the JSON:\s*(\[[\s\S]*\])',
+            r'The JSON array:\s*(\[[\s\S]*\])',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, response, re.IGNORECASE)
+            if match:
+                json_candidate = match.group(1).strip()
+                # Sanitizar e parsear
+                json_sanitized = _json_sanitize(json_candidate)
+                try:
+                    data = json.loads(json_sanitized)
+                    if isinstance(data, list) and len(data) >= 3:
+                        print(f"[CRITIQUE] JSON extraido apos marcador (pattern: {pattern})")
+                        return data
+                except json.JSONDecodeError:
+                    continue
+    except Exception as e:
+        print(f"[CRITIQUE] Tentativa 4a falhou: {e}")
+        pass
+    
+    # Tentativa 4b: Remover texto antes/depois do primeiro [ e ultimo ]
     try:
         first_bracket = response.find('[')
         last_bracket = response.rfind(']')
         if first_bracket != -1 and last_bracket != -1 and first_bracket < last_bracket:
             json_str = response[first_bracket:last_bracket+1]
-            data = json.loads(json_str)
+            # Sanitizar antes de parsear
+            json_str_sanitized = _json_sanitize(json_str)
+            data = json.loads(json_str_sanitized)
             if isinstance(data, list):
+                print(f"[CRITIQUE] JSON extraido por brackets (tentativa 4b)")
                 return data
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        print(f"[CRITIQUE] Tentativa 4b falhou: {e}")
         pass
     
     # Tentativa 5: Corrigir aspas simples para duplas e tentar parsear
