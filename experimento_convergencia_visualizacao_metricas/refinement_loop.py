@@ -25,6 +25,12 @@ from refinement_critique import critique_step
 from refinement_packing import packing_step
 from refinement_generation import generation_step
 from refinement_north import generate_north_star, format_north_with_tactical
+from refinement_clustering import (
+    cluster_human_ideas,
+    select_cluster_representatives,
+    analyze_cluster_diversity,
+    get_best_cluster,
+)
 
 
 @dataclass
@@ -63,6 +69,13 @@ class RefinementConfig:
     output_dir: Optional[Path] = None
     use_north_star: bool = True  # NOVO: Usar norte fixo automatico
     north_star_model: str = "gpt-4o"  # NOVO: Modelo para gerar norte (mais preciso)
+    # Parametros de clustering
+    use_clustering: bool = False  # Se True, usa clustering; se False, usa human_ideas diretamente
+    all_human_ideas: Optional[List[str]] = None  # TODAS as historias disponiveis (para clustering)
+    clustering_method: str = "kmeans"  # "kmeans" ou "agglomerative"
+    n_clusters: int = 4  # Numero de clusters (para kmeans)
+    distance_threshold: float = 0.3  # Threshold de distancia (para agglomerative)
+    selected_cluster_id: Optional[int] = None  # ID do cluster selecionado (None = auto-select)
 
 
 class RefinementLoop:
@@ -90,6 +103,12 @@ class RefinementLoop:
         self.results: List[IterationResult] = []
         self.converged = False
         self.convergence_reason = ""
+        
+        # Informacoes de clustering (NOVO)
+        self.cluster_labels: Optional[List[int]] = None
+        self.clusters_dict: Optional[Dict[int, List[int]]] = None
+        self.selected_cluster_id: Optional[int] = None
+        self.all_human_ideas: Optional[List[str]] = None  # Todas historias antes de clustering
         
         print("[LOOP] Inicializando RefinementLoop...")
         self._initialize_embedder()
@@ -140,6 +159,82 @@ class RefinementLoop:
         print("\n" + "="*60)
         print("INICIANDO REFINEMENT LOOP")
         print("="*60 + "\n")
+        
+        # NOVO: CLUSTERING (se ativado)
+        cluster_labels = None
+        clusters_dict = None
+        cluster_stats = None
+        
+        # Salvar historias originais antes de clustering
+        if self.config.use_clustering:
+            self.all_human_ideas = self.config.all_human_ideas.copy()
+        
+        if self.config.use_clustering:
+            print("[LOOP] Modo: CLUSTERING ATIVADO")
+            print("="*60)
+            
+            # Validar configuracao
+            if self.config.all_human_ideas is None or len(self.config.all_human_ideas) == 0:
+                raise ValueError(
+                    "use_clustering=True requer all_human_ideas preenchido com todas as historias disponiveis"
+                )
+            
+            # 1. Clusterizar
+            print(f"[LOOP] Clusterizando {len(self.config.all_human_ideas)} historias humanas...")
+            cluster_labels, clusters_dict = cluster_human_ideas(
+                human_ideas=self.config.all_human_ideas,
+                embedder=self.embedder,
+                method=self.config.clustering_method,
+                n_clusters=self.config.n_clusters,
+                distance_threshold=self.config.distance_threshold,
+            )
+            
+            # 2. Analisar diversidade
+            cluster_stats = analyze_cluster_diversity(
+                human_ideas=self.config.all_human_ideas,
+                embedder=self.embedder,
+                labels=cluster_labels,
+                clusters_dict=clusters_dict,
+            )
+            
+            # 3. Selecionar cluster
+            if self.config.selected_cluster_id is None:
+                # Auto-selecionar: maior cluster (mais historias)
+                selected_cluster_id = get_best_cluster(
+                    clusters_dict=clusters_dict,
+                    cluster_stats=cluster_stats,
+                    criterion="largest",
+                )
+                print(f"[LOOP] Auto-selecionado cluster {selected_cluster_id} (criterion=largest)")
+            else:
+                selected_cluster_id = self.config.selected_cluster_id
+                print(f"[LOOP] Usando cluster pre-selecionado: {selected_cluster_id}")
+            
+            # 4. Extrair historias do cluster
+            cluster_ideas = select_cluster_representatives(
+                human_ideas=self.config.all_human_ideas,
+                embedder=self.embedder,
+                cluster_id=selected_cluster_id,
+                labels=cluster_labels,
+            )
+            
+            # 5. Atualizar config com historias do cluster
+            print(f"[LOOP] Atualizando human_ideas: {len(self.config.human_ideas)} -> {len(cluster_ideas)} historias (cluster {selected_cluster_id})")
+            self.config.human_ideas = cluster_ideas
+            
+            # Recomputar embeddings com as novas historias
+            self._embed_human_ideas()
+            
+            # 6. Salvar informacoes de clustering nas variaveis de instancia (NOVO)
+            self.cluster_labels = cluster_labels
+            self.clusters_dict = clusters_dict
+            self.selected_cluster_id = selected_cluster_id
+            
+            print("="*60)
+            print(f"[LOOP] CLUSTERING COMPLETO: Usando {len(cluster_ideas)} historias do cluster {selected_cluster_id}")
+            print("="*60 + "\n")
+        else:
+            print(f"[LOOP] Modo: SEM CLUSTERING (usando {len(self.config.human_ideas)} historias fornecidas)\n")
         
         # NOVO: Gerar norte fixo UMA VEZ antes do loop
         north_star = None
@@ -216,6 +311,9 @@ class RefinementLoop:
             
             # ETAPA 3: GENERATION
             print(f"[LOOP] Etapa 3/3: GENERATION")
+            # MUDANÇA: Removido few-shot learning (human_examples=None)
+            # Com clustering, o Norte Fixo já fornece diretrizes específicas do cluster
+            # Few-shot poderia causar overfitting ou vazamento de informação
             new_ideas = generation_step(
                 invitation=self.config.invitation,
                 directive=self.config.directive,
@@ -226,7 +324,7 @@ class RefinementLoop:
                 max_tokens=self.config.max_tokens,
                 api_key_override=self.config.api_key_override,
                 reasoning_effort=self.config.reasoning_effort,
-                human_examples=self.config.human_ideas,  # NOVO: Few-shot learning
+                human_examples=None,  # ZERO-SHOT: sem exemplos humanos no prompt
             )
             
             # Calcular distancias
@@ -382,6 +480,7 @@ class RefinementLoop:
                 "delta_threshold": self.config.delta_threshold,
                 "num_ideas_per_iter": self.config.num_ideas_per_iter,
                 "num_human_ideas": len(self.config.human_ideas),  # NOVO: salvar quantas foram usadas
+                "use_clustering": self.config.use_clustering,  # NOVO: se clustering foi usado
             },
             "converged": self.converged,
             "convergence_reason": self.convergence_reason,
@@ -399,6 +498,20 @@ class RefinementLoop:
                 for r in self.results
             ]
         }
+        
+        # Adicionar informacoes de clustering se foi usado (NOVO)
+        if self.config.use_clustering and self.cluster_labels is not None:
+            summary["clustering"] = {
+                "method": self.config.clustering_method,
+                "n_clusters_total": len(set(self.cluster_labels)),
+                "selected_cluster_id": self.selected_cluster_id,
+                "cluster_labels": self.cluster_labels,  # Label de cada historia
+                "clusters_sizes": {
+                    str(cluster_id): len(indices)
+                    for cluster_id, indices in self.clusters_dict.items()
+                },
+                "total_human_ideas_available": len(self.all_human_ideas) if self.all_human_ideas else 0,
+            }
         
         summary_file = self.config.output_dir / "summary.json"
         with open(summary_file, "w", encoding="utf-8") as f:

@@ -160,19 +160,55 @@ if st.session_state.get('show_saved_exp', False):
                 all_iterations_viz = []
                 all_distances = []
                 all_used_status = []  # NOVO: rastrear se foi usada ou não
+                all_cluster_ids = []  # NOVO: rastrear cluster ID
+                
+                # Verificar se clustering foi usado (NOVO)
+                clustering_info = summary.get("clustering", None)
+                use_clustering_viz = clustering_info is not None
+                
+                if use_clustering_viz:
+                    selected_cluster = clustering_info.get("selected_cluster_id", None)
+                    cluster_labels = clustering_info.get("cluster_labels", [])
+                    st.info(f"""
+                    🎯 **Clustering detectado!**
+                    - Método: {clustering_info.get('method', 'unknown')}
+                    - Total de clusters: {clustering_info.get('n_clusters_total', 0)}
+                    - Cluster selecionado: **{selected_cluster}**
+                    - Histórias no cluster: {len([l for l in cluster_labels if l == selected_cluster])}
+                    """)
+                else:
+                    selected_cluster = None
+                    cluster_labels = []
                 
                 # Adicionar ideias humanas (USADAS e NÃO USADAS)
                 for i, emb in enumerate(human_embeddings_all):
                     all_embeddings.append(emb)
                     all_labels.append(f"Humana {i+1}")
                     
-                    # Determinar se foi usada no experimento
-                    if i < num_human_used:
-                        all_types.append("humana_usada")
-                        all_used_status.append("Usada")
+                    # Cluster ID
+                    cluster_id = cluster_labels[i] if i < len(cluster_labels) else -1
+                    all_cluster_ids.append(cluster_id)
+                    
+                    # Determinar tipo baseado em clustering
+                    if use_clustering_viz:
+                        # Com clustering: classificar por cluster
+                        if cluster_id == selected_cluster:
+                            all_types.append("humana_cluster_selecionado")
+                            all_used_status.append(f"Cluster {cluster_id} (SELECIONADO)")
+                        elif cluster_id >= 0:
+                            all_types.append("humana_outro_cluster")
+                            all_used_status.append(f"Cluster {cluster_id}")
+                        else:
+                            all_types.append("humana_nao_usada")
+                            all_used_status.append("Não Usada")
                     else:
-                        all_types.append("humana_nao_usada")
-                        all_used_status.append("Não Usada")
+                        # Sem clustering: classificar por usada/não usada
+                        if i < num_human_used:
+                            all_types.append("humana_usada")
+                            all_used_status.append("Usada")
+                        else:
+                            all_types.append("humana_nao_usada")
+                            all_used_status.append("Não Usada")
                     
                     all_iterations_viz.append(0)
                     all_distances.append(0.0)
@@ -191,6 +227,7 @@ if st.session_state.get('show_saved_exp', False):
                             all_labels.append(f"Iter {iter_num} - Ideia {i+1}")
                             all_types.append("gerada")
                             all_used_status.append("N/A")
+                            all_cluster_ids.append(-1)  # NOVO: Ideias geradas não têm cluster
                             all_iterations_viz.append(iter_num)
                             
                             # Calcular distância apenas para as humanas USADAS
@@ -215,35 +252,82 @@ if st.session_state.get('show_saved_exp', False):
                     'label': all_labels,
                     'tipo': all_types,
                     'used_status': all_used_status,
+                    'cluster_id': all_cluster_ids,  # NOVO
                     'iteracao': all_iterations_viz,
                     'distancia': all_distances
                 })
                 
                 fig_umap = go.Figure()
                 
-                # Humanas USADAS (vermelho escuro)
-                df_human_used = df_umap[df_umap['tipo'] == 'humana_usada']
-                if len(df_human_used) > 0:
-                    fig_umap.add_trace(go.Scatter3d(
-                        x=df_human_used['x'], y=df_human_used['y'], z=df_human_used['z'],
-                        mode='markers',
-                        marker=dict(size=12, color='darkred', symbol='diamond', line=dict(color='black', width=2)),
-                        name='🔴 Humanas (USADAS)',
-                        text=df_human_used['label'],
-                        hovertemplate="<b>%{text} - USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
-                    ))
-                
-                # Humanas NÃO USADAS (laranja claro)
-                df_human_not_used = df_umap[df_umap['tipo'] == 'humana_nao_usada']
-                if len(df_human_not_used) > 0:
-                    fig_umap.add_trace(go.Scatter3d(
-                        x=df_human_not_used['x'], y=df_human_not_used['y'], z=df_human_not_used['z'],
-                        mode='markers',
-                        marker=dict(size=10, color='orange', symbol='diamond', line=dict(color='darkorange', width=1), opacity=0.5),
-                        name='🟠 Humanas (NÃO USADAS)',
-                        text=df_human_not_used['label'],
-                        hovertemplate="<b>%{text} - NÃO USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
-                    ))
+                # Visualização de ideias humanas
+                if use_clustering_viz:
+                    # COM CLUSTERING: mostrar por cluster
+                    # Cluster selecionado (vermelho escuro, destacado)
+                    df_cluster_selected = df_umap[df_umap['tipo'] == 'humana_cluster_selecionado']
+                    if len(df_cluster_selected) > 0:
+                        fig_umap.add_trace(go.Scatter3d(
+                            x=df_cluster_selected['x'], y=df_cluster_selected['y'], z=df_cluster_selected['z'],
+                            mode='markers',
+                            marker=dict(size=14, color='darkred', symbol='diamond', line=dict(color='black', width=3)),
+                            name=f'🔴 Cluster {selected_cluster} (SELECIONADO)',
+                            text=df_cluster_selected['label'],
+                            customdata=df_cluster_selected['cluster_id'],
+                            hovertemplate="<b>%{text}</b><br>Cluster: %{customdata} (SELECIONADO)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                        ))
+                    
+                    # Outros clusters (coloridos por cluster, menor opacidade)
+                    df_outros = df_umap[df_umap['tipo'] == 'humana_outro_cluster']
+                    if len(df_outros) > 0:
+                        # Cores diferentes por cluster
+                        cluster_colors = {
+                            0: 'lightblue',
+                            1: 'lightgreen',
+                            2: 'lightyellow',
+                            3: 'lightpink',
+                            4: 'lightcoral',
+                            5: 'lightcyan',
+                            6: 'lavender',
+                            7: 'lightsalmon',
+                        }
+                        
+                        for cluster_id in df_outros['cluster_id'].unique():
+                            df_cluster = df_outros[df_outros['cluster_id'] == cluster_id]
+                            color = cluster_colors.get(cluster_id, 'lightgray')
+                            
+                            fig_umap.add_trace(go.Scatter3d(
+                                x=df_cluster['x'], y=df_cluster['y'], z=df_cluster['z'],
+                                mode='markers',
+                                marker=dict(size=10, color=color, symbol='diamond', line=dict(color='gray', width=1), opacity=0.4),
+                                name=f'⚪ Cluster {cluster_id}',
+                                text=df_cluster['label'],
+                                customdata=df_cluster['cluster_id'],
+                                hovertemplate="<b>%{text}</b><br>Cluster: %{customdata}<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                            ))
+                else:
+                    # SEM CLUSTERING: mostrar usadas/não usadas
+                    # Humanas USADAS (vermelho escuro)
+                    df_human_used = df_umap[df_umap['tipo'] == 'humana_usada']
+                    if len(df_human_used) > 0:
+                        fig_umap.add_trace(go.Scatter3d(
+                            x=df_human_used['x'], y=df_human_used['y'], z=df_human_used['z'],
+                            mode='markers',
+                            marker=dict(size=12, color='darkred', symbol='diamond', line=dict(color='black', width=2)),
+                            name='🔴 Humanas (USADAS)',
+                            text=df_human_used['label'],
+                            hovertemplate="<b>%{text} - USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                        ))
+                    
+                    # Humanas NÃO USADAS (laranja claro)
+                    df_human_not_used = df_umap[df_umap['tipo'] == 'humana_nao_usada']
+                    if len(df_human_not_used) > 0:
+                        fig_umap.add_trace(go.Scatter3d(
+                            x=df_human_not_used['x'], y=df_human_not_used['y'], z=df_human_not_used['z'],
+                            mode='markers',
+                            marker=dict(size=10, color='orange', symbol='diamond', line=dict(color='darkorange', width=1), opacity=0.5),
+                            name='🟠 Humanas (NÃO USADAS)',
+                            text=df_human_not_used['label'],
+                            hovertemplate="<b>%{text} - NÃO USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                        ))
                 
                 # Geradas
                 df_generated = df_umap[df_umap['tipo'] == 'gerada']
@@ -677,6 +761,110 @@ with col2:
 
 st.markdown("---")
 
+# Clustering de Ideias Humanas (NOVO)
+st.header("🎯 Clustering de Ideias Humanas")
+
+use_clustering = st.checkbox(
+    "Usar Clustering",
+    value=False,
+    help="""
+    Agrupa historias humanas por similaridade semantica e usa apenas um cluster especifico.
+    
+    **Vantagens**:
+    - Feedback mais consistente (historias do mesmo estilo)
+    - Norte Fixo mais especifico
+    - Maior chance de convergencia
+    
+    **Quando usar**:
+    - Quando voce tem muitas historias (>10)
+    - Quando suspeita que historias sao muito diferentes entre si
+    """
+)
+
+clustering_method = "kmeans"
+n_clusters = 4
+distance_threshold = 0.3
+selected_cluster_id = None
+all_human_ideas_for_clustering = []
+
+if use_clustering:
+    col_clust1, col_clust2 = st.columns(2)
+    
+    with col_clust1:
+        clustering_method = st.selectbox(
+            "Metodo de Clustering",
+            ["kmeans", "agglomerative"],
+            index=0,
+            help="""
+            - **KMeans**: Voce define o numero de clusters
+            - **Agglomerative**: Threshold de distancia define clusters automaticamente
+            """
+        )
+    
+    with col_clust2:
+        if clustering_method == "kmeans":
+            n_clusters = st.slider(
+                "Numero de Clusters",
+                min_value=2,
+                max_value=8,
+                value=4,
+                help="Quantos grupos de historias similares criar"
+            )
+        else:
+            distance_threshold = st.slider(
+                "Threshold de Distancia",
+                min_value=0.1,
+                max_value=0.5,
+                value=0.3,
+                step=0.05,
+                help="Distancia maxima para historias no mesmo cluster (menor = clusters mais coesos)"
+            )
+    
+    # Selecao do cluster
+    cluster_selection_method = st.radio(
+        "Selecao do Cluster",
+        ["Automatica (maior cluster)", "Manual (escolher depois)"],
+        index=0,
+        help="""
+        - **Automatica**: Sistema escolhe o maior cluster
+        - **Manual**: Voce escolhe qual cluster usar depois de ver os resultados
+        """
+    )
+    
+    if cluster_selection_method == "Manual (escolher depois)":
+        st.warning("⚠️ Modo manual ainda nao implementado. Sistema usara automatica.")
+        selected_cluster_id = None
+    else:
+        selected_cluster_id = None
+    
+    # Preparar ideias para clustering
+    # Se carregou de arquivo, usa todas disponiveis
+    # Se digitou manualmente, usa apenas as fornecidas
+    if human_ideas_mode == "Carregar de arquivo":
+        # Carregar TODAS as ideias disponiveis (nao apenas num_human_ideas)
+        ideas_path = Path(human_ideas_path)
+        if ideas_path.exists():
+            if ideas_path.is_dir():
+                for txt_file in sorted(ideas_path.glob("*.txt")):
+                    content = txt_file.read_text(encoding="utf-8").strip()
+                    if content:
+                        all_human_ideas_for_clustering.append(content)
+            else:
+                content = ideas_path.read_text(encoding="utf-8").strip()
+                all_human_ideas_for_clustering = [line.strip() for line in content.split("\n") if line.strip()]
+        
+        st.info(f"📊 Clustering sera aplicado a {len(all_human_ideas_for_clustering)} historias humanas disponiveis")
+    else:
+        # Digitadas manualmente: clustering usa as mesmas fornecidas
+        all_human_ideas_for_clustering = human_ideas.copy()
+        st.info(f"📊 Clustering sera aplicado a {len(all_human_ideas_for_clustering)} historias fornecidas")
+    
+    if len(all_human_ideas_for_clustering) < 3:
+        st.error("❌ Clustering requer pelo menos 3 historias humanas")
+        use_clustering = False
+
+st.markdown("---")
+
 # Validacao de chaves de API
 st.header("🔑 Status de Configuracao")
 
@@ -797,6 +985,13 @@ if run_button:
         reasoning_effort=reasoning_arg,
         output_dir=Path(output_dir),
         use_north_star=use_north_star,  # NOVO
+        # Parametros de clustering (NOVO)
+        use_clustering=use_clustering,
+        all_human_ideas=all_human_ideas_for_clustering if use_clustering else None,
+        clustering_method=clustering_method,
+        n_clusters=n_clusters,
+        distance_threshold=distance_threshold,
+        selected_cluster_id=selected_cluster_id,
         north_star_model=north_star_model,  # NOVO
     )
     
@@ -921,38 +1116,123 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
         st.markdown("---")
         st.subheader("🌐 Visualização UMAP 3D - Evolução das Ideias")
         
+        # Toggle para trajetórias
+        col_toggle1, col_toggle2, col_toggle3 = st.columns(3)
+        with col_toggle1:
+            show_centroid_trajectory = st.checkbox(
+                "🎯 Mostrar trajetória dos centroides",
+                value=True,
+                help="Linha conectando o ponto médio das ideias de cada iteração (tendência geral)"
+            )
+        with col_toggle2:
+            show_best_trajectory = st.checkbox(
+                "⭐ Mostrar trajetória das melhores ideias",
+                value=True,
+                help="Linha conectando a melhor ideia de cada iteração (elite)"
+            )
+        with col_toggle3:
+            show_arrows = st.checkbox(
+                "➡️ Mostrar setas direcionais",
+                value=True,
+                help="Adiciona setas 3D indicando a direção do movimento ao longo das trajetórias"
+            )
+        
         with st.spinner("Calculando UMAP 3D..."):
             try:
+                from experiment_iterativo import embed_texts, load_references_from_fs
+                
                 # Coletar todos os embeddings
                 all_embeddings = []
                 all_labels = []
                 all_types = []
                 all_iterations = []
                 all_distances = []
+                all_cluster_ids = []
                 
-                # Adicionar ideias humanas (referências)
-                for emb in loop.human_embeddings:
-                    all_embeddings.append(emb)
-                    all_labels.append("Referencia Humana")
-                    all_types.append("humana")
-                    all_iterations.append(0)
-                    all_distances.append(0.0)
+                # SEMPRE carregar TODAS as ideias humanas disponíveis
+                # (para UMAP consistente com "carregar experimento")
+                use_clustering_viz = config.use_clustering
+                
+                # Carregar todas as ideias humanas (de arquivo ou config)
+                try:
+                    human_ideas_all = load_references_from_fs("ideas-exp/human")
+                except:
+                    # Se falhar, usar as disponíveis no config
+                    human_ideas_all = config.all_human_ideas if config.all_human_ideas else config.human_ideas
+                
+                human_embeddings_all = embed_texts(loop.embedder, human_ideas_all)
+                num_human_used = len(config.human_ideas)  # Quantas foram efetivamente usadas
+                
+                if use_clustering_viz:
+                    # COM CLUSTERING: mostrar por cluster
+                    cluster_labels = loop.cluster_labels if hasattr(loop, 'cluster_labels') else []
+                    selected_cluster = loop.selected_cluster_id if hasattr(loop, 'selected_cluster_id') else None
+                    
+                    st.info(f"""
+                    🎯 **Clustering ativo!**
+                    - Total de ideias humanas disponíveis: {len(human_ideas_all)}
+                    - Cluster selecionado: **{selected_cluster}**
+                    - Ideias no cluster: {len([l for l in cluster_labels if l == selected_cluster])}
+                    """)
+                    
+                    # Adicionar TODAS as ideias humanas com diferenciação por cluster
+                    for i, emb in enumerate(human_embeddings_all):
+                        all_embeddings.append(emb)
+                        all_labels.append(f"Humana {i+1}")
+                        
+                        cluster_id = cluster_labels[i] if i < len(cluster_labels) else -1
+                        all_cluster_ids.append(cluster_id)
+                        
+                        # Tipo baseado em cluster
+                        if cluster_id == selected_cluster:
+                            all_types.append("humana_cluster_selecionado")
+                        elif cluster_id >= 0:
+                            all_types.append("humana_outro_cluster")
+                        else:
+                            all_types.append("humana_nao_usada")
+                        
+                        all_iterations.append(0)
+                        all_distances.append(0.0)
+                else:
+                    # SEM CLUSTERING: mostrar todas, mas distinguir usadas/não usadas
+                    st.info(f"""
+                    📊 **Ideias Humanas:**
+                    - Total disponíveis: {len(human_ideas_all)}
+                    - Usadas no experimento: {num_human_used}
+                    - Não usadas (contexto): {len(human_ideas_all) - num_human_used}
+                    """)
+                    
+                    for i, emb in enumerate(human_embeddings_all):
+                        all_embeddings.append(emb)
+                        all_labels.append(f"Humana {i+1}")
+                        all_cluster_ids.append(-1)
+                        
+                        # Tipo baseado em posição (primeiras N foram usadas)
+                        if i < num_human_used:
+                            all_types.append("humana_usada")
+                        else:
+                            all_types.append("humana_nao_usada")
+                        
+                        all_iterations.append(0)
+                        all_distances.append(0.0)
+                
+                # Embeddings das humanas USADAS (para cálculo de distância)
+                human_emb_used = human_embeddings_all[:num_human_used]
                 
                 # Adicionar ideias geradas de cada iteração
                 for result in results:
                     # Embeddings das ideias geradas nesta iteração
-                    # Usar embed_texts() para suportar tanto OpenAI quanto local
-                    from experiment_iterativo import embed_texts
                     iter_embeddings = embed_texts(loop.embedder, result.generated_ideas)
                     
                     for i, emb in enumerate(iter_embeddings):
                         all_embeddings.append(emb)
                         all_labels.append(f"Iter {result.iteration} - Ideia {i+1}")
                         all_types.append("gerada")
+                        all_cluster_ids.append(-1)
                         all_iterations.append(result.iteration)
                         
-                        # Calcular distância mínima dessa ideia para as humanas
-                        dists = [np.dot(emb, h_emb) for h_emb in loop.human_embeddings]
+                        # Calcular distância mínima para as humanas USADAS (consistente com "carregar experimento")
+                        dists = [np.dot(emb, h_emb) for h_emb in human_emb_used]
                         min_dist = 1.0 - max(dists)  # cosine distance = 1 - cosine similarity
                         all_distances.append(min_dist)
                 
@@ -977,6 +1257,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                     'z': embeddings_umap[:, 2],
                     'label': all_labels,
                     'tipo': all_types,
+                    'cluster_id': all_cluster_ids,
                     'iteracao': all_iterations,
                     'distancia': all_distances
                 })
@@ -984,26 +1265,76 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 # Criar figura 3D
                 fig_umap = go.Figure()
                 
-                # Adicionar referências humanas
-                df_human = df_umap[df_umap['tipo'] == 'humana']
-                fig_umap.add_trace(go.Scatter3d(
-                    x=df_human['x'],
-                    y=df_human['y'],
-                    z=df_human['z'],
-                    mode='markers',
-                    marker=dict(
-                        size=12,
-                        color='red',
-                        symbol='diamond',
-                        line=dict(color='darkred', width=2)
-                    ),
-                    name='Ideias Humanas',
-                    text=df_human['label'],
-                    hovertemplate="<b>%{text}</b><br>" +
-                                "UMAP 1: %{x:.3f}<br>" +
-                                "UMAP 2: %{y:.3f}<br>" +
-                                "UMAP 3: %{z:.3f}<extra></extra>"
-                ))
+                # Visualização de ideias humanas
+                if use_clustering_viz:
+                    # COM CLUSTERING: mostrar por cluster
+                    # Cluster selecionado (vermelho escuro, destacado)
+                    df_cluster_selected = df_umap[df_umap['tipo'] == 'humana_cluster_selecionado']
+                    if len(df_cluster_selected) > 0:
+                        fig_umap.add_trace(go.Scatter3d(
+                            x=df_cluster_selected['x'], y=df_cluster_selected['y'], z=df_cluster_selected['z'],
+                            mode='markers',
+                            marker=dict(size=14, color='darkred', symbol='diamond', line=dict(color='black', width=3)),
+                            name=f'🔴 Cluster {selected_cluster} (SELECIONADO)',
+                            text=df_cluster_selected['label'],
+                            customdata=df_cluster_selected['cluster_id'],
+                            hovertemplate="<b>%{text}</b><br>Cluster: %{customdata} (SELECIONADO)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                        ))
+                    
+                    # Outros clusters (coloridos por cluster, menor opacidade)
+                    df_outros = df_umap[df_umap['tipo'] == 'humana_outro_cluster']
+                    if len(df_outros) > 0:
+                        # Cores diferentes por cluster
+                        cluster_colors = {
+                            0: 'lightblue', 1: 'lightgreen', 2: 'lightyellow', 3: 'lightpink',
+                            4: 'lightcoral', 5: 'lightcyan', 6: 'lavender', 7: 'lightsalmon',
+                            8: 'lightsteelblue', 9: 'lightgoldenrodyellow', 10: 'lightseagreen',
+                            11: 'lightyellow', 12: 'lightgray', 13: 'lightcoral', 14: 'lightpink',
+                            15: 'lightblue', 16: 'lightgreen'
+                        }
+                        
+                        for cluster_id in df_outros['cluster_id'].unique():
+                            df_cluster = df_outros[df_outros['cluster_id'] == cluster_id]
+                            color = cluster_colors.get(cluster_id, 'lightgray')
+                            
+                            fig_umap.add_trace(go.Scatter3d(
+                                x=df_cluster['x'], y=df_cluster['y'], z=df_cluster['z'],
+                                mode='markers',
+                                marker=dict(size=10, color=color, symbol='diamond', line=dict(color='gray', width=1), opacity=0.4),
+                                name=f'⚪ Cluster {cluster_id}',
+                                text=df_cluster['label'],
+                                customdata=df_cluster['cluster_id'],
+                                hovertemplate="<b>%{text}</b><br>Cluster: %{customdata}<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                            ))
+                else:
+                    # SEM CLUSTERING: mostrar usadas/não usadas
+                    # Humanas USADAS (vermelho escuro)
+                    df_human_used = df_umap[df_umap['tipo'] == 'humana_usada']
+                    if len(df_human_used) > 0:
+                        fig_umap.add_trace(go.Scatter3d(
+                            x=df_human_used['x'],
+                            y=df_human_used['y'],
+                            z=df_human_used['z'],
+                            mode='markers',
+                            marker=dict(size=12, color='darkred', symbol='diamond', line=dict(color='black', width=2)),
+                            name='🔴 Humanas (USADAS)',
+                            text=df_human_used['label'],
+                            hovertemplate="<b>%{text} - USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                        ))
+                    
+                    # Humanas NÃO USADAS (laranja claro)
+                    df_human_not_used = df_umap[df_umap['tipo'] == 'humana_nao_usada']
+                    if len(df_human_not_used) > 0:
+                        fig_umap.add_trace(go.Scatter3d(
+                            x=df_human_not_used['x'],
+                            y=df_human_not_used['y'],
+                            z=df_human_not_used['z'],
+                            mode='markers',
+                            marker=dict(size=10, color='orange', symbol='diamond', line=dict(color='darkorange', width=1), opacity=0.5),
+                            name='🟠 Humanas (NÃO USADAS)',
+                            text=df_human_not_used['label'],
+                            hovertemplate="<b>%{text} - NÃO USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                        ))
                 
                 # Adicionar ideias geradas (coloridas por iteração)
                 df_generated = df_umap[df_umap['tipo'] == 'gerada']
@@ -1067,6 +1398,147 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                     "UMAP 3: %{z:.3f}<br>" +
                                     "Dist. Coseno: %{customdata:.4f}<extra></extra>"
                     ))
+                    
+                    # ============================================================
+                    # TRAJETÓRIAS 3D
+                    # ============================================================
+                    
+                    # 1. Trajetória dos CENTROIDES (tendência geral)
+                    if show_centroid_trajectory and len(results) > 1:
+                        centroids_x, centroids_y, centroids_z = [], [], []
+                        centroid_iters = []
+                        
+                        for iter_num in range(1, len(results) + 1):
+                            df_iter = df_generated[df_generated['iteracao'] == iter_num]
+                            if len(df_iter) > 0:
+                                # Calcular centroide (média das coordenadas)
+                                cent_x = df_iter['x'].mean()
+                                cent_y = df_iter['y'].mean()
+                                cent_z = df_iter['z'].mean()
+                                centroids_x.append(cent_x)
+                                centroids_y.append(cent_y)
+                                centroids_z.append(cent_z)
+                                centroid_iters.append(iter_num)
+                        
+                        if len(centroids_x) > 1:
+                            # Linha principal
+                            fig_umap.add_trace(go.Scatter3d(
+                                x=centroids_x,
+                                y=centroids_y,
+                                z=centroids_z,
+                                mode='lines+markers+text',
+                                line=dict(color='cyan', width=4, dash='solid'),
+                                marker=dict(size=8, color='cyan', symbol='circle', 
+                                          line=dict(color='darkblue', width=2)),
+                                text=[f"{i}" for i in centroid_iters],  # Números nas bolinhas
+                                textposition='top center',
+                                textfont=dict(size=14, color='darkblue', family='Arial Black'),  # Aumentado de 10 para 14
+                                name='🎯 Trajetória (Centroides)',
+                                hovertemplate="<b>Centroide Iter %{text}</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
+                                showlegend=True
+                            ))
+                            
+                            # Setas direcionais ao longo da trajetória (opcional)
+                            if show_arrows:
+                                # Adicionar setas a cada 2-3 segmentos para não poluir
+                                for i in range(0, len(centroids_x) - 1, max(1, len(centroids_x) // 5)):
+                                    if i + 1 < len(centroids_x):
+                                        # Vetor direção
+                                        dx = centroids_x[i+1] - centroids_x[i]
+                                        dy = centroids_y[i+1] - centroids_y[i]
+                                        dz = centroids_z[i+1] - centroids_z[i]
+                                        
+                                        # Normalizar e escalar
+                                        length = (dx**2 + dy**2 + dz**2)**0.5
+                                        if length > 0:
+                                            scale = 0.05# Tamanho da seta (reduzido de 0.3 para 0.15)
+                                            dx, dy, dz = dx/length*scale, dy/length*scale, dz/length*scale
+                                            
+                                            # Posição da seta (meio do segmento)
+                                            mid_x = (centroids_x[i] + centroids_x[i+1]) / 2
+                                            mid_y = (centroids_y[i] + centroids_y[i+1]) / 2
+                                            mid_z = (centroids_z[i] + centroids_z[i+1]) / 2
+                                            
+                                            fig_umap.add_trace(go.Cone(
+                                                x=[mid_x], y=[mid_y], z=[mid_z],
+                                                u=[dx], v=[dy], w=[dz],
+                                                colorscale=[[0, 'cyan'], [1, 'cyan']],
+                                                showscale=False,
+                                                sizemode='absolute',
+                                                sizeref=0.1,  # Tamanho base reduzido (de 0.5 para 0.3)
+                                                anchor='tail',
+                                                showlegend=False,
+                                                hoverinfo='skip'
+                                            ))
+                    
+                    # 2. Trajetória das MELHORES ideias (elite)
+                    if show_best_trajectory and len(results) > 1:
+                        best_x, best_y, best_z = [], [], []
+                        best_iters = []
+                        best_dists = []
+                        
+                        for iter_num in range(1, len(results) + 1):
+                            df_iter = df_generated[df_generated['iteracao'] == iter_num]
+                            if len(df_iter) > 0:
+                                # Encontrar a melhor dessa iteração
+                                best_iter_idx = df_iter['distancia'].idxmin()
+                                best_iter_row = df_iter.loc[best_iter_idx]
+                                best_x.append(best_iter_row['x'])
+                                best_y.append(best_iter_row['y'])
+                                best_z.append(best_iter_row['z'])
+                                best_iters.append(iter_num)
+                                best_dists.append(best_iter_row['distancia'])
+                        
+                        if len(best_x) > 1:
+                            # Linha principal
+                            fig_umap.add_trace(go.Scatter3d(
+                                x=best_x,
+                                y=best_y,
+                                z=best_z,
+                                mode='lines+markers+text',
+                                line=dict(color='magenta', width=3, dash='solid'),  # Mudado de 'dash' para 'solid'
+                                marker=dict(size=8, color='magenta', symbol='diamond',
+                                          line=dict(color='purple', width=2)),
+                                text=[f"{i}" for i in best_iters],  # Números nos diamantes
+                                textposition='bottom center',
+                                textfont=dict(size=14, color='purple', family='Arial Black'),  # Aumentado de 10 para 14
+                                name='⭐ Trajetória (Melhores)',
+                                customdata=best_dists,
+                                hovertemplate="<b>Melhor Iter %{text}</b><br>Dist: %{customdata:.4f}<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
+                                showlegend=True
+                            ))
+                            
+                            # Setas direcionais ao longo da trajetória (opcional)
+                            if show_arrows:
+                                for i in range(0, len(best_x) - 1, max(1, len(best_x) // 5)):
+                                    if i + 1 < len(best_x):
+                                        # Vetor direção
+                                        dx = best_x[i+1] - best_x[i]
+                                        dy = best_y[i+1] - best_y[i]
+                                        dz = best_z[i+1] - best_z[i]
+                                        
+                                        # Normalizar e escalar
+                                        length = (dx**2 + dy**2 + dz**2)**0.5
+                                        if length > 0:
+                                            scale = 0.05  # Tamanho da seta (reduzido de 0.3 para 0.15)
+                                            dx, dy, dz = dx/length*scale, dy/length*scale, dz/length*scale
+                                            
+                                            # Posição da seta (meio do segmento)
+                                            mid_x = (best_x[i] + best_x[i+1]) / 2
+                                            mid_y = (best_y[i] + best_y[i+1]) / 2
+                                            mid_z = (best_z[i] + best_z[i+1]) / 2
+                                            
+                                            fig_umap.add_trace(go.Cone(
+                                                x=[mid_x], y=[mid_y], z=[mid_z],
+                                                u=[dx], v=[dy], w=[dz],
+                                                colorscale=[[0, 'magenta'], [1, 'magenta']],
+                                                showscale=False,
+                                                sizemode='absolute',
+                                                sizeref=0.1,  # Tamanho base reduzido (de 0.5 para 0.3)
+                                                anchor='tail',
+                                                showlegend=False,
+                                                hoverinfo='skip'
+                                            ))
                 
                 # Layout
                 fig_umap.update_layout(
@@ -1098,21 +1570,52 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 
                 st.plotly_chart(fig_umap, use_container_width=True)
                 
-                st.info("""
-                **📊 Como interpretar o UMAP 3D:**
-                
-                - **Diamantes vermelhos**: Ideias humanas (referências)
-                - **Círculos coloridos**: Ideias geradas (cor = iteração)
-                - **Diamante dourado ⭐**: Melhor ideia gerada (menor distância)
-                
-                **💡 O que observar:**
-                - Ideias mais próximas dos diamantes vermelhos são mais parecidas com as humanas
-                - A trajetória das cores mostra a evolução ao longo das iterações
-                - Se as ideias estão se aproximando (convergência) ou afastando (divergência) das humanas
-                
-                ⚠️ **Importante**: UMAP reduz de 384D para 3D (~99% de perda de informação).
-                As distâncias visuais são aproximadas. Use os valores de hover para distâncias reais.
-                """)
+                if use_clustering_viz:
+                    st.info(f"""
+                    **📊 Como interpretar o UMAP 3D (COM CLUSTERING):**
+                    
+                    **Pontos:**
+                    - **🔴 Diamantes vermelhos grandes**: Cluster {selected_cluster} (SELECIONADO - usado no experimento)
+                    - **⚪ Diamantes coloridos menores**: Outros clusters (disponíveis mas não usados)
+                    - **🔵 Círculos coloridos**: Ideias geradas (cor = iteração)
+                    - **⭐ Diamante dourado**: Melhor ideia global (menor distância)
+                    
+                    **Trajetórias:**
+                    - **🎯 Linha ciano (sólida)**: Centroides de cada iteração (tendência geral do movimento)
+                    - **⭐ Linha magenta (tracejada)**: Melhores ideias de cada iteração (elite)
+                    
+                    **💡 O que observar:**
+                    - Ideias geradas devem convergir para o cluster vermelho (selecionado)
+                    - Trajetória ciano mostra se o "centro de massa" está se aproximando das humanas
+                    - Trajetória magenta mostra se as top ideias estão melhorando iteração a iteração
+                    
+                    ⚠️ **Importante**: UMAP reduz de 3072D (OpenAI) para 3D (~99% de perda de informação).
+                    As distâncias visuais são aproximadas. Use os valores de hover para distâncias reais.
+                    """)
+                else:
+                    st.info("""
+                    **📊 Como interpretar o UMAP 3D:**
+                    
+                    **Pontos:**
+                    - **🔴 Diamantes vermelhos**: Ideias humanas (referências usadas)
+                    - **🟠 Diamantes laranja**: Ideias humanas não usadas (contexto)
+                    - **🔵 Círculos coloridos**: Ideias geradas (cor = iteração)
+                    - **⭐ Diamante dourado**: Melhor ideia global (menor distância)
+                    
+                    **Trajetórias:**
+                    - **🎯 Linha ciano (sólida)**: Centroides de cada iteração (tendência geral)
+                    - **⭐ Linha magenta (tracejada)**: Melhores ideias de cada iteração (elite)
+                    
+                    **💡 O que observar:**
+                    - Ideias mais próximas dos diamantes vermelhos são mais parecidas com as humanas
+                    - Trajetória ciano mostra se o "centro de massa" está convergindo
+                    - Trajetória magenta mostra se as top ideias estão melhorando
+                    - Se as linhas se aproximam das humanas = convergência ✅
+                    - Se as linhas se afastam ou zigzagueiam = divergência ❌
+                    
+                    ⚠️ **Importante**: UMAP reduz de 3072D (OpenAI) para 3D (~99% de perda de informação).
+                    As distâncias visuais são aproximadas. Use os valores de hover para distâncias reais.
+                    """)
                 
             except Exception as e:
                 st.error(f"❌ Erro ao calcular UMAP 3D: {e}")
