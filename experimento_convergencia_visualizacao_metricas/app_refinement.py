@@ -1117,7 +1117,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
         st.subheader("🌐 Visualização UMAP 3D - Evolução das Ideias")
         
         # Toggle para trajetórias
-        col_toggle1, col_toggle2, col_toggle3 = st.columns(3)
+        col_toggle1, col_toggle2 = st.columns(2)
         with col_toggle1:
             show_centroid_trajectory = st.checkbox(
                 "🎯 Mostrar trajetória dos centroides",
@@ -1130,12 +1130,9 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 value=True,
                 help="Linha conectando a melhor ideia de cada iteração (elite)"
             )
-        with col_toggle3:
-            show_arrows = st.checkbox(
-                "➡️ Mostrar setas direcionais",
-                value=True,
-                help="Adiciona setas 3D indicando a direção do movimento ao longo das trajetórias"
-            )
+        
+        # As setas agora aparecem na legenda do gráfico e podem ser habilitadas/desabilitadas lá
+        show_arrows = True  # Sempre gerar as setas (usuário controla via legenda)
         
         with st.spinner("Calculando UMAP 3D..."):
             try:
@@ -1440,7 +1437,10 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                             
                             # Setas direcionais ao longo da trajetória (opcional)
                             if show_arrows:
-                                # Adicionar setas a cada 2-3 segmentos para não poluir
+                                # Coletar todas as posições e direções das setas
+                                arrow_x, arrow_y, arrow_z = [], [], []
+                                arrow_u, arrow_v, arrow_w = [], [], []
+                                
                                 for i in range(0, len(centroids_x) - 1, max(1, len(centroids_x) // 5)):
                                     if i + 1 < len(centroids_x):
                                         # Vetor direção
@@ -1451,7 +1451,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                         # Normalizar e escalar
                                         length = (dx**2 + dy**2 + dz**2)**0.5
                                         if length > 0:
-                                            scale = 0.05# Tamanho da seta (reduzido de 0.3 para 0.15)
+                                            scale = 0.05
                                             dx, dy, dz = dx/length*scale, dy/length*scale, dz/length*scale
                                             
                                             # Posição da seta (meio do segmento)
@@ -1459,17 +1459,28 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                             mid_y = (centroids_y[i] + centroids_y[i+1]) / 2
                                             mid_z = (centroids_z[i] + centroids_z[i+1]) / 2
                                             
-                                            fig_umap.add_trace(go.Cone(
-                                                x=[mid_x], y=[mid_y], z=[mid_z],
-                                                u=[dx], v=[dy], w=[dz],
-                                                colorscale=[[0, 'cyan'], [1, 'cyan']],
-                                                showscale=False,
-                                                sizemode='absolute',
-                                                sizeref=0.1,  # Tamanho base reduzido (de 0.5 para 0.3)
-                                                anchor='tail',
-                                                showlegend=False,
-                                                hoverinfo='skip'
-                                            ))
+                                            arrow_x.append(mid_x)
+                                            arrow_y.append(mid_y)
+                                            arrow_z.append(mid_z)
+                                            arrow_u.append(dx)
+                                            arrow_v.append(dy)
+                                            arrow_w.append(dz)
+                                
+                                # Adicionar todas as setas como um único trace (aparece na legenda)
+                                if arrow_x:
+                                    fig_umap.add_trace(go.Cone(
+                                        x=arrow_x, y=arrow_y, z=arrow_z,
+                                        u=arrow_u, v=arrow_v, w=arrow_w,
+                                        colorscale=[[0, 'cyan'], [1, 'cyan']],
+                                        showscale=False,
+                                        sizemode='absolute',
+                                        sizeref=0.03,
+                                        anchor='tail',
+                                        showlegend=True,
+                                        name='➡️ Setas (Centroides)',
+                                        hoverinfo='skip',
+                                        legendgroup='arrows_centroid'
+                                    ))
                     
                     # 2. Trajetória das MELHORES ideias (elite)
                     if show_best_trajectory and len(results) > 1:
@@ -1510,6 +1521,10 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                             
                             # Setas direcionais ao longo da trajetória (opcional)
                             if show_arrows:
+                                # Coletar todas as posições e direções das setas
+                                arrow_x_best, arrow_y_best, arrow_z_best = [], [], []
+                                arrow_u_best, arrow_v_best, arrow_w_best = [], [], []
+                                
                                 for i in range(0, len(best_x) - 1, max(1, len(best_x) // 5)):
                                     if i + 1 < len(best_x):
                                         # Vetor direção
@@ -1520,7 +1535,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                         # Normalizar e escalar
                                         length = (dx**2 + dy**2 + dz**2)**0.5
                                         if length > 0:
-                                            scale = 0.05  # Tamanho da seta (reduzido de 0.3 para 0.15)
+                                            scale = 0.05
                                             dx, dy, dz = dx/length*scale, dy/length*scale, dz/length*scale
                                             
                                             # Posição da seta (meio do segmento)
@@ -1528,17 +1543,28 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                             mid_y = (best_y[i] + best_y[i+1]) / 2
                                             mid_z = (best_z[i] + best_z[i+1]) / 2
                                             
-                                            fig_umap.add_trace(go.Cone(
-                                                x=[mid_x], y=[mid_y], z=[mid_z],
-                                                u=[dx], v=[dy], w=[dz],
-                                                colorscale=[[0, 'magenta'], [1, 'magenta']],
-                                                showscale=False,
-                                                sizemode='absolute',
-                                                sizeref=0.1,  # Tamanho base reduzido (de 0.5 para 0.3)
-                                                anchor='tail',
-                                                showlegend=False,
-                                                hoverinfo='skip'
-                                            ))
+                                            arrow_x_best.append(mid_x)
+                                            arrow_y_best.append(mid_y)
+                                            arrow_z_best.append(mid_z)
+                                            arrow_u_best.append(dx)
+                                            arrow_v_best.append(dy)
+                                            arrow_w_best.append(dz)
+                                
+                                # Adicionar todas as setas como um único trace (aparece na legenda)
+                                if arrow_x_best:
+                                    fig_umap.add_trace(go.Cone(
+                                        x=arrow_x_best, y=arrow_y_best, z=arrow_z_best,
+                                        u=arrow_u_best, v=arrow_v_best, w=arrow_w_best,
+                                        colorscale=[[0, 'magenta'], [1, 'magenta']],
+                                        showscale=False,
+                                        sizemode='absolute',
+                                        sizeref=0.03,
+                                        anchor='tail',
+                                        showlegend=True,
+                                        name='➡️ Setas (Melhores)',
+                                        hoverinfo='skip',
+                                        legendgroup='arrows_best'
+                                    ))
                 
                 # Layout
                 fig_umap.update_layout(
@@ -1582,7 +1608,8 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                     
                     **Trajetórias:**
                     - **🎯 Linha ciano (sólida)**: Centroides de cada iteração (tendência geral do movimento)
-                    - **⭐ Linha magenta (tracejada)**: Melhores ideias de cada iteração (elite)
+                    - **⭐ Linha magenta (sólida)**: Melhores ideias de cada iteração (elite)
+                    - **➡️ Setas 3D**: Direção do movimento (clique na legenda para habilitar/desabilitar)
                     
                     **💡 O que observar:**
                     - Ideias geradas devem convergir para o cluster vermelho (selecionado)
@@ -1604,7 +1631,8 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                     
                     **Trajetórias:**
                     - **🎯 Linha ciano (sólida)**: Centroides de cada iteração (tendência geral)
-                    - **⭐ Linha magenta (tracejada)**: Melhores ideias de cada iteração (elite)
+                    - **⭐ Linha magenta (sólida)**: Melhores ideias de cada iteração (elite)
+                    - **➡️ Setas 3D**: Direção do movimento (clique na legenda para habilitar/desabilitar)
                     
                     **💡 O que observar:**
                     - Ideias mais próximas dos diamantes vermelhos são mais parecidas com as humanas
