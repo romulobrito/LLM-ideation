@@ -18,7 +18,7 @@ Opcoes:
 Requerimento para geracao: variavel de ambiente OPENROUTER_API_KEY.
 """
 
-import os, argparse, json, math, sys
+import os, argparse, json, math, sys, time
 from typing import List, Sequence, Tuple
 import re
 
@@ -508,40 +508,74 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
         if extra_body:
             call_params["extra_body"] = extra_body
 
-        try:
-            resp = client.chat.completions.create(**call_params)
-        except Exception as api_error:
-            # Tentar extrair mensagem de erro da resposta da API
-            error_msg = str(api_error)
-            error_details = ""
-            
-            if hasattr(api_error, 'response'):
-                try:
-                    error_response = api_error.response
-                    if hasattr(error_response, 'text'):
-                        error_text = error_response.text
-                        error_details = f"\n\nResposta completa da API:\n{error_text[:1000]}"
-                        
-                        # Tentar parsear como JSON para extrair mensagem de erro
-                        try:
-                            import json as json_lib
-                            error_json = json_lib.loads(error_text)
-                            if 'error' in error_json:
-                                error_info = error_json['error']
-                                if isinstance(error_info, dict):
-                                    error_msg = error_info.get('message', error_msg)
-                                    error_details = f"\n\nErro OpenRouter: {error_info}"
-                        except:
-                            pass
-                except:
-                    pass
-            
-            raise RuntimeError(f"Erro na chamada da API: {error_msg}{error_details}")
+        # Retry com backoff: lidar com respostas malformadas/intermitentes do provedor
+        max_attempts = 3
+        last_error = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resp = client.chat.completions.create(**call_params)
+                break
+            except Exception as api_error:
+                # Extrair detalhes quando possivel
+                error_msg = str(api_error)
+                error_details = ""
+                if hasattr(api_error, 'response'):
+                    try:
+                        error_response = api_error.response
+                        if hasattr(error_response, 'text'):
+                            error_text = error_response.text
+                            error_details = f"\n\nResposta completa da API:\n{error_text[:1000]}"
+                            try:
+                                import json as json_lib
+                                error_json = json_lib.loads(error_text)
+                                if 'error' in error_json and isinstance(error_json['error'], dict):
+                                    error_msg = error_json['error'].get('message', error_msg)
+                                    error_details = f"\n\nErro OpenRouter: {error_json['error']}"
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+                last_error = RuntimeError(f"Erro na chamada da API: {error_msg}{error_details}")
+
+                # Tratar JSON malformado/empty body com retry/backoff
+                is_parse_error = (
+                    'JSONDecodeError' in error_msg
+                    or 'Expecting value' in error_msg
+                    or 'parse' in error_msg.lower()
+                )
+
+                # Na ultima tentativa, tentar remover extra_body (reasoning) para simplificar a resposta
+                if attempt == max_attempts and is_parse_error and call_params.get('extra_body') is not None:
+                    simplified_params = dict(call_params)
+                    simplified_params.pop('extra_body', None)
+                    try:
+                        resp = client.chat.completions.create(**simplified_params)
+                        break
+                    except Exception:
+                        # Mantem o ultimo erro
+                        pass
+
+                # Aguardar com backoff e tentar novamente
+                if attempt < max_attempts:
+                    sleep_seconds = 1.5 ** attempt
+                    print(f"[RETRY] Falha na chamada da API (tentativa {attempt}/{max_attempts}). Aguardando {sleep_seconds:.1f}s e tentando novamente...")
+                    time.sleep(sleep_seconds)
+                else:
+                    # Esgotou tentativas
+                    raise last_error
         
         # Extracao robusta de texto (cobre respostas multimodais e modelos de raciocinio)
         if not getattr(resp, "choices", None) or len(resp.choices) == 0:
             raise RuntimeError("Resposta sem choices do modelo.")
         msg = getattr(resp.choices[0], "message", None)
+        
+        # Helper: detecta se texto parece conter JSON array
+        def _looks_like_json_array(txt: str) -> bool:
+            if not isinstance(txt, str):
+                return False
+            t = txt.strip()
+            return "[" in t and "]" in t and t.rfind("]") > t.find("[")
         
         # Para GPT-5 e modelos com reasoning: verificar ambos os campos
         # A ordem de prioridade depende do parametro exclude_reasoning
@@ -568,6 +602,11 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
                         print(f"[DEBUG] Extraindo de reasoning (dict): {len(rt)} chars")
                         return rt.strip()
             else:
+                # CORRECAO: Se content parece ter JSON, priorize-o (evita perder JSON que vem em content)
+                if _looks_like_json_array(c):
+                    print(f"[DEBUG] Content parece conter JSON array, priorizando content: {len(c)} chars")
+                    return c.strip()
+                
                 # PRIORIDADE 1: reasoning (processo completo)
                 if isinstance(r, str) and r.strip():
                     print(f"[DEBUG] Extraindo de reasoning (string): {len(r)} chars")

@@ -43,6 +43,7 @@ class IterationResult:
     avg_distance: float
     min_distance: float
     timestamp: str
+    individual_distances: List[float] = None  # NOVO: Distancias individuais de cada ideia
     
     def to_dict(self) -> Dict:
         """Converte para dicionario."""
@@ -328,7 +329,7 @@ class RefinementLoop:
             )
             
             # Calcular distancias
-            avg_dist, min_dist = self._compute_distances(new_ideas)
+            avg_dist, min_dist, individual_dists = self._compute_distances(new_ideas)
             
             # Criar resultado
             result = IterationResult(
@@ -338,6 +339,7 @@ class RefinementLoop:
                 generated_ideas=new_ideas,
                 avg_distance=avg_dist,
                 min_distance=min_dist,
+                individual_distances=individual_dists,  # NOVO: Salvar distancias individuais
                 timestamp=datetime.now().isoformat(),
             )
             self.results.append(result)
@@ -412,6 +414,8 @@ class RefinementLoop:
         print("[LOOP] Gerando ideias iniciais da LLM...")
         
         # Usar generation_step com bullets vazios
+        # ZERO-SHOT: sem exemplos humanos para evitar vazamento de informacao
+        # (human_examples=None por padrao, mas pode ser habilitado no futuro se necessario)
         initial_ideas = generation_step(
             invitation=self.config.invitation,
             directive=self.config.directive,
@@ -422,13 +426,13 @@ class RefinementLoop:
             max_tokens=self.config.max_tokens,
             api_key_override=self.config.api_key_override,
             reasoning_effort=self.config.reasoning_effort,
-            human_examples=self.config.human_ideas,  # NOVO: Few-shot desde o início
+            human_examples=None,  # ZERO-SHOT: sem few-shot learning para evitar vazamento
         )
         
         print(f"[LOOP] Geradas {len(initial_ideas)} ideias iniciais")
         return initial_ideas
     
-    def _compute_distances(self, llm_ideas: List[str]) -> Tuple[float, float]:
+    def _compute_distances(self, llm_ideas: List[str]) -> Tuple[float, float, List[float]]:
         """
         Computa distancias entre ideias da LLM e humanas.
         
@@ -436,7 +440,7 @@ class RefinementLoop:
             llm_ideas: Lista de ideias da LLM
         
         Returns:
-            Tupla (distancia_media, distancia_minima)
+            Tupla (distancia_media, distancia_minima, lista_distancias_individuais)
         """
         # Embed ideias da LLM usando embed_texts() (suporta OpenAI e local)
         llm_embeddings = embed_texts(self.embedder, llm_ideas)
@@ -458,7 +462,7 @@ class RefinementLoop:
         avg_distance = float(np.mean(min_distances_per_llm))
         min_distance = float(np.min(min_distances_per_llm))
         
-        return avg_distance, min_distance
+        return avg_distance, min_distance, min_distances_per_llm
     
     def _save_iteration(self, result: IterationResult) -> None:
         """Salva resultado de uma iteracao em arquivo."""

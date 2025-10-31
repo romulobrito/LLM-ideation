@@ -187,11 +187,31 @@ def critique_step(
         print(f"[CRITIQUE] JSON parseado com sucesso: {len(json_critique)} vibes detectadas")
         return json_critique
     except Exception as e:
-        print(f"[CRITIQUE] ERRO ao parsear JSON: {e}")
-        print(f"[CRITIQUE] Resposta raw (primeiros 500 chars): {response[:500]}...")
-        if len(response) > 500:
-            print(f"[CRITIQUE] Resposta raw (ultimos 500 chars): ...{response[-500:]}")
-        raise
+        print(f"[CRITIQUE] ERRO ao parsear JSON (tentativa 1): {e}")
+        print(f"[CRITIQUE] Tentando retry com exclude_reasoning=True...")
+        
+        # FALLBACK: Tentar novamente com exclude_reasoning=True (costuma retornar JSON limpo)
+        try:
+            response2 = call_deepseek(
+                prompt=prompt,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                api_key_override=api_key_override,
+                reasoning_effort=reasoning_effort,
+                exclude_reasoning=True,  # Forcar apenas content
+            )
+            json_critique = _parse_json_response(response2)
+            print(f"[CRITIQUE] Retry bem-sucedido: {len(json_critique)} vibes detectadas")
+            return json_critique
+        except Exception as e2:
+            print(f"[CRITIQUE] Retry tambem falhou: {e2}")
+            print(f"[CRITIQUE] Resposta original (primeiros 500 chars): {response[:500]}...")
+            if len(response) > 500:
+                print(f"[CRITIQUE] Resposta original (ultimos 500 chars): ...{response[-500:]}")
+            if 'response2' in locals():
+                print(f"[CRITIQUE] Resposta retry (primeiros 500 chars): {response2[:500]}...")
+            raise ValueError(f"Nao foi possivel parsear JSON da resposta apos 2 tentativas")
 
 
 def _json_sanitize(s: str) -> str:
@@ -327,9 +347,9 @@ def _parse_json_response(response: str) -> List[Dict[str, str]]:
                 json_str = match.group(0)
                 data = json.loads(json_str)
                 if isinstance(data, list) and len(data) > 0:
-                    # Validar se tem a estrutura esperada
-                    if all(isinstance(item, dict) and "vibe_pattern" in item for item in data):
-                        print(f"[CRITIQUE] JSON extraido de reasoning (posicao {match.start()}/{len(response)})")
+                    # Validar se tem estrutura de lista de objetos (funciona com qualquer esquema)
+                    if all(isinstance(item, dict) for item in data):
+                        print(f"[CRITIQUE] JSON extraido de reasoning (posicao {match.start()}/{len(response)}, {len(data)} items)")
                         return data
             except json.JSONDecodeError:
                 continue
@@ -404,17 +424,20 @@ def _parse_json_response(response: str) -> List[Dict[str, str]]:
     except (json.JSONDecodeError, ValueError):
         pass
     
-    # Tentativa 6: Buscar multiplos objetos JSON individuais
+    # Tentativa 6: Buscar multiplos objetos JSON individuais (esquema flexivel)
     try:
-        objects = re.findall(r'\{[^{}]*"vibe_pattern"[^{}]*"vibe_description"[^{}]*\}', response, re.IGNORECASE)
+        # Buscar objetos com action (esquema novo) OU vibe_pattern (esquema antigo)
+        objects = re.findall(r'\{[^{}]*("action"|"vibe_pattern")[^{}]*\}', response, re.IGNORECASE)
         if objects:
             print(f"[CRITIQUE] Tentativa 6: encontrados {len(objects)} objetos candidatos")
             parsed_objects = []
             for i, obj_str in enumerate(objects):
                 try:
                     obj = json.loads(obj_str)
-                    if isinstance(obj, dict) and "vibe_pattern" in obj and "vibe_description" in obj:
-                        parsed_objects.append(obj)
+                    if isinstance(obj, dict):
+                        # Aceitar se tem action OU vibe_pattern
+                        if "action" in obj or "vibe_pattern" in obj:
+                            parsed_objects.append(obj)
                 except Exception as e:
                     print(f"[CRITIQUE] Tentativa 6, objeto {i+1} falhou: {e}")
                     continue
@@ -462,15 +485,29 @@ def _validate_critique_json(data: List[Dict[str, str]]) -> bool:
     if not isinstance(data, list):
         return False
     
+    # Validacao flexivel: aceita tanto esquema antigo (vibe_pattern) quanto novo (action/from/to)
     for item in data:
         if not isinstance(item, dict):
             return False
-        if "vibe_pattern" not in item or "vibe_description" not in item:
-            return False
-        if item["vibe_pattern"] not in ["do", "don't"]:
-            return False
-        if not isinstance(item["vibe_description"], str) or not item["vibe_description"].strip():
-            return False
+        
+        # Esquema novo: action/from/to
+        if "action" in item:
+            if item["action"] not in ["replace", "add", "keep"]:
+                return False
+            continue
+        
+        # Esquema antigo: vibe_pattern/vibe_description (compatibilidade legada)
+        if "vibe_pattern" in item:
+            if item["vibe_pattern"] not in ["do", "don't"]:
+                return False
+            if "vibe_description" not in item:
+                return False
+            if not isinstance(item["vibe_description"], str) or not item["vibe_description"].strip():
+                return False
+            continue
+        
+        # Se nao tem nenhum dos campos esperados, invalido
+        return False
     
     return True
 

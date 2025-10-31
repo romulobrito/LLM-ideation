@@ -127,7 +127,7 @@ if st.session_state.get('show_saved_exp', False):
         st.subheader("🌐 Visualização UMAP 3D")
         
         try:
-            from experiment_iterativo import get_embedder, embed_texts, load_references_from_fs
+            from experiment_iterativo import get_embedder, embed_texts, load_references_from_fs, cosine_distance
             
             embedder_name = summary['config']['embedder']
             with st.spinner(f"Carregando embedder `{embedder_name}`..."):
@@ -222,6 +222,19 @@ if st.session_state.get('show_saved_exp', False):
                         
                         iter_embeddings = embed_texts(embedder, iter_data["generated_ideas"])
                         
+                        # Usar distâncias salvas se disponíveis, senão recalcular (compatibilidade com experimentos antigos)
+                        if "individual_distances" in iter_data and len(iter_data["individual_distances"]) == len(iter_data["generated_ideas"]):
+                            # Usar distâncias salvas durante o experimento (garante consistência)
+                            iter_distances = iter_data["individual_distances"]
+                        else:
+                            # Fallback: recalcular para experimentos antigos sem distâncias salvas
+                            iter_distances = []
+                            for i, emb in enumerate(iter_embeddings):
+                                human_emb_used = human_embeddings_all[:num_human_used]
+                                dists_to_humans = [cosine_distance(emb, h_emb) for h_emb in human_emb_used]
+                                min_dist = min(dists_to_humans)
+                                iter_distances.append(min_dist)
+                        
                         for i, emb in enumerate(iter_embeddings):
                             all_embeddings.append(emb)
                             all_labels.append(f"Iter {iter_num} - Ideia {i+1}")
@@ -230,11 +243,8 @@ if st.session_state.get('show_saved_exp', False):
                             all_cluster_ids.append(-1)  # NOVO: Ideias geradas não têm cluster
                             all_iterations_viz.append(iter_num)
                             
-                            # Calcular distância apenas para as humanas USADAS
-                            human_emb_used = human_embeddings_all[:num_human_used]
-                            dists = [np.dot(emb, h_emb) for h_emb in human_emb_used]
-                            min_dist = 1.0 - max(dists)
-                            all_distances.append(min_dist)
+                            # Usar distância salva (ou recalculada se não disponível)
+                            all_distances.append(iter_distances[i])
                 
                 embeddings_array = np.array(all_embeddings)
                 
@@ -329,11 +339,18 @@ if st.session_state.get('show_saved_exp', False):
                             hovertemplate="<b>%{text} - NÃO USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
                         ))
                 
-                # Geradas
+                # DEBUG: Mostrar estatisticas das distancias calculadas
                 df_generated = df_umap[df_umap['tipo'] == 'gerada']
                 if len(df_generated) > 0:
+                    # Encontrar melhor ideia por iteracao
+                    for iter_num in df_generated['iteracao'].unique():
+                        iter_ideas = df_generated[df_generated['iteracao'] == iter_num]
+                        min_dist_iter = iter_ideas['distancia'].min()
+                        print(f"[DEBUG UMAP] Iter {iter_num}: min_dist={min_dist_iter:.6f}")
+                    
                     best_idx = df_generated['distancia'].idxmin()
                     best_row = df_generated.loc[best_idx]
+                    print(f"[DEBUG UMAP] Melhor global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}")
                     df_gen_normal = df_generated.drop(best_idx)
                     
                     if len(df_gen_normal) > 0:
@@ -1136,7 +1153,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
         
         with st.spinner("Calculando UMAP 3D..."):
             try:
-                from experiment_iterativo import embed_texts, load_references_from_fs
+                from experiment_iterativo import embed_texts, load_references_from_fs, cosine_distance
                 
                 # Coletar todos os embeddings
                 all_embeddings = []
@@ -1215,11 +1232,15 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 
                 # Embeddings das humanas USADAS (para cálculo de distância)
                 human_emb_used = human_embeddings_all[:num_human_used]
+                print(f"[DEBUG UMAP] Usando {num_human_used} ideias humanas de {len(human_embeddings_all)} como referencia")
                 
                 # Adicionar ideias geradas de cada iteração
                 for result in results:
                     # Embeddings das ideias geradas nesta iteração
                     iter_embeddings = embed_texts(loop.embedder, result.generated_ideas)
+                    
+                    # Usar distâncias salvas (já calculadas durante o experimento)
+                    iter_distances = result.individual_distances
                     
                     for i, emb in enumerate(iter_embeddings):
                         all_embeddings.append(emb)
@@ -1228,10 +1249,8 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                         all_cluster_ids.append(-1)
                         all_iterations.append(result.iteration)
                         
-                        # Calcular distância mínima para as humanas USADAS (consistente com "carregar experimento")
-                        dists = [np.dot(emb, h_emb) for h_emb in human_emb_used]
-                        min_dist = 1.0 - max(dists)  # cosine distance = 1 - cosine similarity
-                        all_distances.append(min_dist)
+                        # Usar distância salva (garante consistência)
+                        all_distances.append(iter_distances[i])
                 
                 # Converter para numpy array
                 embeddings_array = np.array(all_embeddings)
@@ -1337,9 +1356,19 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 df_generated = df_umap[df_umap['tipo'] == 'gerada']
                 
                 if len(df_generated) > 0:
+                    # DEBUG: Mostrar estatisticas das distancias recalculadas
+                    debug_info = []
+                    for iter_num in sorted(df_generated['iteracao'].unique()):
+                        iter_ideas = df_generated[df_generated['iteracao'] == iter_num]
+                        min_dist_iter = iter_ideas['distancia'].min()
+                        debug_info.append(f"Iter {iter_num}: min_dist={min_dist_iter:.6f}")
+                    
                     # Encontrar a melhor ideia global (menor distância)
                     best_idx = df_generated['distancia'].idxmin()
                     best_row = df_generated.loc[best_idx]
+                    debug_info.append(f"**Melhor global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}**")
+                    
+                    st.info("🔍 DEBUG - Distâncias recalculadas:\n\n" + "\n\n".join(debug_info))
                     
                     # Plotar ideias normais (exceto a melhor)
                     df_gen_normal = df_generated.drop(best_idx)
@@ -1474,7 +1503,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                         colorscale=[[0, 'cyan'], [1, 'cyan']],
                                         showscale=False,
                                         sizemode='absolute',
-                                        sizeref=0.03,
+                                        sizeref=0.015,
                                         anchor='tail',
                                         showlegend=True,
                                         name='➡️ Setas (Centroides)',
@@ -1558,7 +1587,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                         colorscale=[[0, 'magenta'], [1, 'magenta']],
                                         showscale=False,
                                         sizemode='absolute',
-                                        sizeref=0.03,
+                                        sizeref=0.015,
                                         anchor='tail',
                                         showlegend=True,
                                         name='➡️ Setas (Melhores)',
