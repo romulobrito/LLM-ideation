@@ -70,16 +70,38 @@ st.title("🔄 Refinement Loop - Diversidade LLM")
 st.sidebar.markdown("---")
 st.sidebar.subheader("📂 Carregar Experimento Salvo")
 
-exp_dir = Path("exp_refinement")
-if exp_dir.exists() and (exp_dir / "summary.json").exists():
-    if st.sidebar.button("📊 Visualizar Último Experimento", use_container_width=True):
+exp_base_dir = Path("exp_refinement")
+available_experiments = []
+
+if exp_base_dir.exists():
+    # Listar todas as subpastas com timestamp que contêm summary.json
+    for exp_subdir in sorted(exp_base_dir.iterdir(), reverse=True):
+        if exp_subdir.is_dir() and (exp_subdir / "summary.json").exists():
+            available_experiments.append(exp_subdir.name)
+
+if available_experiments:
+    selected_exp = st.sidebar.selectbox(
+        "Selecione o Experimento",
+        available_experiments,
+        help="Experimentos ordenados do mais recente para o mais antigo"
+    )
+    
+    if st.sidebar.button("📊 Visualizar Experimento", use_container_width=True):
         st.session_state['show_saved_exp'] = True
+        st.session_state['selected_exp_dir'] = selected_exp
 else:
     st.sidebar.info("Nenhum experimento salvo ainda")
 
 # Verificar se deve mostrar experimento salvo
 if st.session_state.get('show_saved_exp', False):
-    st.subheader("📊 Experimento Salvo")
+    selected_exp_name = st.session_state.get('selected_exp_dir', available_experiments[0] if available_experiments else None)
+    
+    if not selected_exp_name:
+        st.warning("Nenhum experimento selecionado")
+        st.stop()
+    
+    exp_dir = exp_base_dir / selected_exp_name
+    st.subheader(f"📊 Experimento: {selected_exp_name}")
     
     # Carregar summary
     summary_file = exp_dir / "summary.json"
@@ -594,10 +616,23 @@ delta_threshold = st.sidebar.number_input(
     "Delta Threshold",
     min_value=0.001,
     max_value=0.1,
-    value=0.01,
+    value=0.005,  # AJUSTADO: 0.01 -> 0.005 (Fase 1)
     step=0.001,
     format="%.3f",
-    help="Melhoria minima para considerar progresso"
+    help="Melhoria minima para considerar progresso. Recomendado: 0.005"
+)
+
+# NOVO: Metrica de otimizacao (Fase 1)
+optimize_metric = st.sidebar.selectbox(
+    "Metrica de Otimizacao",
+    ["top3_mean", "centroid_to_centroid", "avg", "min", "centroid"],
+    index=0,
+    help="""Metrica usada para convergencia:
+- top3_mean: media das 3 melhores (RECOMENDADO)
+- centroid_to_centroid: dist. entre centroides (MAIS ESTAVEL)
+- avg: distancia media
+- min: menor distancia (ruidosa)
+- centroid: dist. media ao centroide humano"""
 )
 
 # Parametros de geracao
@@ -607,8 +642,8 @@ num_ideas_per_iter = st.sidebar.slider(
     "Ideias por Iteracao",
     min_value=1,
     max_value=20,
-    value=5,
-    help="Numero de ideias a gerar em cada iteracao"
+    value=10,  # AJUSTADO: 5 -> 10 (Fase 1: mais exploracao)
+    help="Numero de ideias a gerar em cada iteracao. Recomendado: 10 (mais exploracao)"
 )
 
 temperature = st.sidebar.slider(
@@ -837,6 +872,15 @@ if use_clustering:
                 help="Distancia maxima para historias no mesmo cluster (menor = clusters mais coesos)"
             )
     
+    # NOVO: Tamanho minimo do cluster (Fase 1)
+    min_cluster_size = st.slider(
+        "Tamanho Minimo do Cluster",
+        min_value=1,
+        max_value=10,
+        value=5,
+        help="Minimo de historias no cluster. Se menor, expande com vizinhos (RECOMENDADO: 5)"
+    )
+    
     # Selecao do cluster
     cluster_selection_method = st.radio(
         "Selecao do Cluster",
@@ -1001,15 +1045,18 @@ if run_button:
         max_tokens=max_tokens,
         reasoning_effort=reasoning_arg,
         output_dir=Path(output_dir),
-        use_north_star=use_north_star,  # NOVO
-        # Parametros de clustering (NOVO)
+        use_north_star=use_north_star,
+        north_star_model=north_star_model,
+        # Parametros de clustering
         use_clustering=use_clustering,
         all_human_ideas=all_human_ideas_for_clustering if use_clustering else None,
         clustering_method=clustering_method,
         n_clusters=n_clusters,
         distance_threshold=distance_threshold,
         selected_cluster_id=selected_cluster_id,
-        north_star_model=north_star_model,  # NOVO
+        min_cluster_size=min_cluster_size if use_clustering else 5,  # NOVO (Fase 1)
+        # Parametros de otimizacao (NOVO - Fase 1)
+        optimize_metric=optimize_metric,
     )
     
     # Marcar como rodando
@@ -1089,12 +1136,22 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
     
     st.info(f"**Razao:** {loop.convergence_reason}")
     
-    # Grafico de convergencia
+    # Grafico de convergencia (MULTIPLAS METRICAS - Fase 1)
     st.subheader("📈 Grafico de Convergencia")
     
     iterations = [r.iteration for r in results]
     avg_distances = [r.avg_distance for r in results]
     min_distances = [r.min_distance for r in results]
+    
+    # Compatibilidade com experimentos antigos (sem novas metricas)
+    top3_distances = [getattr(r, 'top3_mean_distance', None) for r in results]
+    top3_distances = [d for d in top3_distances if d is not None]
+    
+    centroid_distances = [getattr(r, 'centroid_distance', None) for r in results]
+    centroid_distances = [d for d in centroid_distances if d is not None]
+    
+    c2c_distances = [getattr(r, 'centroid_to_centroid', None) for r in results]
+    c2c_distances = [d for d in c2c_distances if d is not None]
     
     fig = go.Figure()
     
@@ -1102,19 +1159,49 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
         x=iterations,
         y=avg_distances,
         mode="lines+markers",
-        name="Distancia Media",
-        line=dict(color="blue", width=2),
-        marker=dict(size=8)
+        name="Media (avg)",
+        line=dict(color="blue", width=2, dash="dot"),
+        marker=dict(size=6)
     ))
     
     fig.add_trace(go.Scatter(
         x=iterations,
         y=min_distances,
         mode="lines+markers",
-        name="Distancia Minima",
-        line=dict(color="green", width=2),
-        marker=dict(size=8)
+        name="Minima (min)",
+        line=dict(color="green", width=2, dash="dot"),
+        marker=dict(size=6)
     ))
+    
+    if top3_distances and len(top3_distances) == len(iterations):
+        fig.add_trace(go.Scatter(
+            x=iterations,
+            y=top3_distances,
+            mode="lines+markers",
+            name="Top-3 Media (OTIMIZACAO)",
+            line=dict(color="red", width=3),  # Destacar metrica principal
+            marker=dict(size=10)
+        ))
+    
+    if centroid_distances and len(centroid_distances) == len(iterations):
+        fig.add_trace(go.Scatter(
+            x=iterations,
+            y=centroid_distances,
+            mode="lines+markers",
+            name="Centroide (media)",
+            line=dict(color="purple", width=2, dash="dot"),
+            marker=dict(size=6)
+        ))
+    
+    if c2c_distances and len(c2c_distances) == len(iterations):
+        fig.add_trace(go.Scatter(
+            x=iterations,
+            y=c2c_distances,
+            mode="lines+markers",
+            name="Centroid-to-Centroid (ESTAVEL)",
+            line=dict(color="orange", width=3),  # Destacar
+            marker=dict(size=10, symbol="diamond")
+        ))
     
     fig.update_layout(
         xaxis_title="Iteracao",
@@ -1125,6 +1212,78 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
     )
     
     st.plotly_chart(fig, use_container_width=True)
+    
+    # ============================================================================
+    # GRAFICO DE TRAJETORIA (DISTANCIA DA ITERACAO 1)
+    # ============================================================================
+    st.subheader("📍 Trajetoria de Convergencia (Distancia da Iteracao 1)")
+    
+    # Extrair distancias da iteracao 1
+    iter1_distances = [getattr(r, 'distance_from_iter1', None) for r in results]
+    iter1_distances = [d for d in iter1_distances if d is not None]
+    
+    if iter1_distances and len(iter1_distances) == len(iterations):
+        fig_traj = go.Figure()
+        
+        fig_traj.add_trace(go.Scatter(
+            x=iterations,
+            y=iter1_distances,
+            mode="lines+markers",
+            name="Distancia da Iter 1",
+            line=dict(color="teal", width=3),
+            marker=dict(size=10, symbol="circle"),
+            fill='tozeroy',  # Preencher area abaixo da linha
+            fillcolor='rgba(0, 128, 128, 0.1)'
+        ))
+        
+        # Linha de referencia em 0 (iteracao 1)
+        fig_traj.add_hline(y=0, line_dash="dash", line_color="gray", 
+                          annotation_text="Baseline (Iter 1)", 
+                          annotation_position="right")
+        
+        fig_traj.update_layout(
+            xaxis_title="Iteracao",
+            yaxis_title="Distancia Coseno (Centroide)",
+            hovermode="x unified",
+            template="plotly_white",
+            height=350,
+            annotations=[
+                dict(
+                    x=0.5, y=1.05,
+                    xref="paper", yref="paper",
+                    text="<b>Interpretacao:</b> Valores crescentes = afastamento do ponto inicial | Valores proximos de 0 = sem mudanca",
+                    showarrow=False,
+                    font=dict(size=10),
+                    xanchor="center"
+                )
+            ]
+        )
+        
+        st.plotly_chart(fig_traj, use_container_width=True)
+        
+        # Analise textual
+        if len(iter1_distances) > 1:
+            final_dist = iter1_distances[-1]
+            max_dist = max(iter1_distances)
+            avg_change = sum(iter1_distances) / len(iter1_distances)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Distancia Final da Iter 1", f"{final_dist:.4f}")
+            with col2:
+                st.metric("Maxima Distancia", f"{max_dist:.4f}")
+            with col3:
+                st.metric("Mudanca Media", f"{avg_change:.4f}")
+            
+            # Interpretacao
+            if final_dist < 0.05:
+                st.success("✅ **Baixa mudanca**: As ideias geradas permanecem proximas ao estilo inicial (Iter 1)")
+            elif final_dist < 0.15:
+                st.info("ℹ️ **Mudanca moderada**: Houve evolucao mas ainda mantendo semelhanca com o inicio")
+            else:
+                st.warning("⚠️ **Alta mudanca**: As ideias atuais sao significativamente diferentes do ponto inicial")
+    else:
+        st.info("Metrica 'distance_from_iter1' nao disponivel para este experimento (rodado em versao antiga)")
     
     # ============================================================================
     # VISUALIZACAO UMAP 3D

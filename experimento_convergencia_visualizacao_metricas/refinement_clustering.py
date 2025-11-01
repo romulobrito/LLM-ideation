@@ -95,32 +95,69 @@ def select_cluster_representatives(
     embedder,
     cluster_id: int,
     labels: List[int],
+    min_size: Optional[int] = None,
 ) -> List[str]:
     """
     Seleciona historias de um cluster especifico.
+    
+    Se o cluster tiver menos de min_size historias, completa com as historias
+    mais proximas ao centroide do cluster (de outros clusters).
     
     Args:
         human_ideas: Lista completa de historias humanas
         embedder: Modelo de embeddings
         cluster_id: ID do cluster a selecionar
         labels: Labels de cluster para cada historia (do cluster_human_ideas)
+        min_size: Tamanho minimo do cluster (None = sem expansao)
     
     Returns:
-        Lista de historias do cluster selecionado
+        Lista de historias do cluster selecionado (expandido se necessario)
     
     Example:
         >>> labels, clusters = cluster_human_ideas(ideas, embedder, n_clusters=3)
-        >>> cluster_0_ideas = select_cluster_representatives(ideas, embedder, cluster_id=0, labels=labels)
+        >>> cluster_0_ideas = select_cluster_representatives(ideas, embedder, cluster_id=0, labels=labels, min_size=5)
         >>> print(len(cluster_0_ideas))
-        4  # 4 historias no cluster 0
+        5  # Expandido para 5 historias (se originalmente tinha < 5)
     """
     # Filtrar historias do cluster
-    selected_ideas = [
-        idea for i, idea in enumerate(human_ideas)
-        if labels[i] == cluster_id
-    ]
+    cluster_indices = [i for i, label in enumerate(labels) if label == cluster_id]
+    selected_ideas = [human_ideas[i] for i in cluster_indices]
     
-    print(f"[CLUSTERING] Selecionado cluster {cluster_id}: {len(selected_ideas)} historias")
+    original_size = len(selected_ideas)
+    print(f"[CLUSTERING] Cluster {cluster_id}: {original_size} historias")
+    
+    # Se min_size especificado e cluster pequeno, expandir
+    if min_size and original_size < min_size:
+        print(f"[CLUSTERING] Expandindo cluster {cluster_id} de {original_size} para {min_size} historias...")
+        
+        # Gerar embeddings de todas as historias
+        all_embeddings = embed_texts(embedder, human_ideas)
+        
+        # Calcular centroide do cluster
+        cluster_embeddings = all_embeddings[cluster_indices]
+        centroid = cluster_embeddings.mean(axis=0)
+        centroid = centroid / np.linalg.norm(centroid)  # Normalizar
+        
+        # Calcular distancias de TODAS as historias ao centroide
+        distances_to_centroid = [
+            (i, cosine_distance(emb, centroid))
+            for i, emb in enumerate(all_embeddings)
+        ]
+        
+        # Ordenar por distancia (mais proximas primeiro)
+        distances_to_centroid.sort(key=lambda x: x[1])
+        
+        # Pegar as min_size historias mais proximas (incluindo as ja no cluster)
+        expanded_indices = [idx for idx, _ in distances_to_centroid[:min_size]]
+        
+        # Atualizar lista de historias
+        selected_ideas = [human_ideas[i] for i in expanded_indices]
+        
+        # Mostrar quais foram adicionadas
+        added_indices = [i for i in expanded_indices if i not in cluster_indices]
+        if added_indices:
+            print(f"[CLUSTERING] Adicionadas {len(added_indices)} historias vizinhas: indices {added_indices}")
+            print(f"[CLUSTERING] Cluster expandido: {original_size} -> {len(selected_ideas)} historias")
     
     return selected_ideas
 

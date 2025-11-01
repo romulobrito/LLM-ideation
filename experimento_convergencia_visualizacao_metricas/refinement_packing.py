@@ -37,10 +37,10 @@ Create a bulleted list of writing directives:
    - "keep" actions: "- KEEP: [description]"
 
 3. CRITICAL: Be ULTRA-SPECIFIC and CONTRASTIVE
-   ✅ GOOD: "- REPLACE archetypal unnamed characters WITH named characters who have specific occupations and backstories"
-   ✅ GOOD: "- ADD sensory details about settings (sounds, smells, textures)"
-   ❌ BAD: "- Improve character development"
-   ❌ BAD: "- Don't use gimmicks"
+   GOOD: "- REPLACE archetypal unnamed characters WITH named characters who have specific occupations and backstories"
+   GOOD: "- ADD sensory details about settings (sounds, smells, textures)"
+   BAD: "- Improve character development"
+   BAD: "- Don't use gimmicks"
 
 4. Do NOT mention specific story examples or character names from the sets
 5. Focus on CRAFT ELEMENTS: character types, setting details, plot structure, emotional tone, pacing
