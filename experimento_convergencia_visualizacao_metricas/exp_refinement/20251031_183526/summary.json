@@ -1,0 +1,148 @@
+{
+  "config": {
+    "model": "deepseek/deepseek-chat",
+    "embedder": "text-embedding-3-large",
+    "max_iterations": 20,
+    "patience": 10,
+    "delta_threshold": 0.005,
+    "num_ideas_per_iter": 5,
+    "num_human_ideas": 6,
+    "use_clustering": true
+  },
+  "converged": false,
+  "convergence_reason": "Atingido max_iterations (20)",
+  "total_iterations": 13,
+  "best_avg_distance": 0.3193141093099842,
+  "best_min_distance": 0.2333349849828097,
+  "iterations": [
+    {
+      "iteration": 1,
+      "avg_distance": 0.4287720487960723,
+      "min_distance": 0.389114975534654,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:36:56.335605"
+    },
+    {
+      "iteration": 2,
+      "avg_distance": 0.38552293030683593,
+      "min_distance": 0.3508445541267642,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:37:48.409874"
+    },
+    {
+      "iteration": 3,
+      "avg_distance": 0.3193141093099842,
+      "min_distance": 0.26298141145989373,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:38:39.971957"
+    },
+    {
+      "iteration": 4,
+      "avg_distance": 0.3241624179529433,
+      "min_distance": 0.3012762555811479,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:39:25.884212"
+    },
+    {
+      "iteration": 5,
+      "avg_distance": 0.41855180184107643,
+      "min_distance": 0.34492014924489434,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:40:24.122885"
+    },
+    {
+      "iteration": 6,
+      "avg_distance": 0.3995072926596518,
+      "min_distance": 0.34022512659227755,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:41:24.521424"
+    },
+    {
+      "iteration": 7,
+      "avg_distance": 0.38975356546090384,
+      "min_distance": 0.3376569023917334,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:42:10.697748"
+    },
+    {
+      "iteration": 8,
+      "avg_distance": 0.3922272600856955,
+      "min_distance": 0.31674787940141047,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:43:03.646004"
+    },
+    {
+      "iteration": 9,
+      "avg_distance": 0.44459470981550864,
+      "min_distance": 0.40845547648038183,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:44:00.358693"
+    },
+    {
+      "iteration": 10,
+      "avg_distance": 0.388516981229185,
+      "min_distance": 0.38065236118707335,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:44:46.175674"
+    },
+    {
+      "iteration": 11,
+      "avg_distance": 0.42858998518722224,
+      "min_distance": 0.39979769673265264,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:45:28.547682"
+    },
+    {
+      "iteration": 12,
+      "avg_distance": 0.34172992065599284,
+      "min_distance": 0.2333349849828097,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:46:13.188518"
+    },
+    {
+      "iteration": 13,
+      "avg_distance": 0.3520766982331747,
+      "min_distance": 0.29631705332499747,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T18:46:57.937569"
+    }
+  ],
+  "clustering": {
+    "method": "agglomerative",
+    "n_clusters_total": 12,
+    "selected_cluster_id": 2,
+    "cluster_labels": [
+      8,
+      9,
+      1,
+      1,
+      11,
+      0,
+      6,
+      10,
+      7,
+      2,
+      2,
+      2,
+      5,
+      3,
+      0,
+      4
+    ],
+    "clusters_sizes": {
+      "0": 2,
+      "1": 2,
+      "2": 3,
+      "3": 1,
+      "4": 1,
+      "5": 1,
+      "6": 1,
+      "7": 1,
+      "8": 1,
+      "9": 1,
+      "10": 1,
+      "11": 1
+    },
+    "total_human_ideas_available": 16
+  }
+}

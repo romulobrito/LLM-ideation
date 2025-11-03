@@ -1,0 +1,99 @@
+{
+  "config": {
+    "model": "deepseek/deepseek-chat",
+    "embedder": "text-embedding-3-large",
+    "max_iterations": 20,
+    "patience": 10,
+    "delta_threshold": 0.005,
+    "num_ideas_per_iter": 5,
+    "num_human_ideas": 6,
+    "use_clustering": true
+  },
+  "converged": false,
+  "convergence_reason": "Atingido max_iterations (20)",
+  "total_iterations": 6,
+  "best_avg_distance": 0.3321825703565708,
+  "best_min_distance": 0.2769257535166909,
+  "iterations": [
+    {
+      "iteration": 1,
+      "avg_distance": 0.41030244198813515,
+      "min_distance": 0.34303062102906823,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T21:45:41.195536"
+    },
+    {
+      "iteration": 2,
+      "avg_distance": 0.40605381644695254,
+      "min_distance": 0.3813856005676859,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T21:46:33.839251"
+    },
+    {
+      "iteration": 3,
+      "avg_distance": 0.3321825703565708,
+      "min_distance": 0.28091209188497857,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T21:47:15.467138"
+    },
+    {
+      "iteration": 4,
+      "avg_distance": 0.37554541164113264,
+      "min_distance": 0.2769257535166909,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T21:47:54.493785"
+    },
+    {
+      "iteration": 5,
+      "avg_distance": 0.41138557456497293,
+      "min_distance": 0.28722786441938575,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T21:48:49.596199"
+    },
+    {
+      "iteration": 6,
+      "avg_distance": 0.3720029080973867,
+      "min_distance": 0.33884469902438685,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T21:49:34.049323"
+    }
+  ],
+  "clustering": {
+    "method": "agglomerative",
+    "n_clusters_total": 12,
+    "selected_cluster_id": 2,
+    "cluster_labels": [
+      7,
+      9,
+      1,
+      1,
+      11,
+      0,
+      6,
+      10,
+      8,
+      2,
+      2,
+      2,
+      5,
+      3,
+      0,
+      4
+    ],
+    "clusters_sizes": {
+      "0": 2,
+      "1": 2,
+      "2": 3,
+      "3": 1,
+      "4": 1,
+      "5": 1,
+      "6": 1,
+      "7": 1,
+      "8": 1,
+      "9": 1,
+      "10": 1,
+      "11": 1
+    },
+    "total_human_ideas_available": 16
+  }
+}

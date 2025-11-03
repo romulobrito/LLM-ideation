@@ -1,0 +1,61 @@
+{
+  "config": {
+    "model": "deepseek/deepseek-chat",
+    "embedder": "text-embedding-3-large",
+    "max_iterations": 12,
+    "patience": 6,
+    "delta_threshold": 0.005,
+    "num_ideas_per_iter": 5,
+    "num_human_ideas": 5,
+    "use_clustering": false
+  },
+  "converged": false,
+  "convergence_reason": "Atingido max_iterations (12)",
+  "total_iterations": 6,
+  "best_avg_distance": 0.40398382953460066,
+  "best_min_distance": 0.3040163965638718,
+  "iterations": [
+    {
+      "iteration": 1,
+      "avg_distance": 0.45567175715501557,
+      "min_distance": 0.4229980266417336,
+      "num_ideas": 5,
+      "timestamp": "2025-11-03T11:40:37.001181"
+    },
+    {
+      "iteration": 2,
+      "avg_distance": 0.4964820142708318,
+      "min_distance": 0.45147240401122546,
+      "num_ideas": 5,
+      "timestamp": "2025-11-03T11:41:32.112086"
+    },
+    {
+      "iteration": 3,
+      "avg_distance": 0.41704480142779776,
+      "min_distance": 0.3892460947736085,
+      "num_ideas": 5,
+      "timestamp": "2025-11-03T11:42:02.612586"
+    },
+    {
+      "iteration": 4,
+      "avg_distance": 0.47724944694658145,
+      "min_distance": 0.4313861001233248,
+      "num_ideas": 5,
+      "timestamp": "2025-11-03T11:42:57.025791"
+    },
+    {
+      "iteration": 5,
+      "avg_distance": 0.44890990653050034,
+      "min_distance": 0.41378739281988763,
+      "num_ideas": 5,
+      "timestamp": "2025-11-03T11:43:29.191601"
+    },
+    {
+      "iteration": 6,
+      "avg_distance": 0.40398382953460066,
+      "min_distance": 0.3040163965638718,
+      "num_ideas": 5,
+      "timestamp": "2025-11-03T11:44:01.020437"
+    }
+  ]
+}

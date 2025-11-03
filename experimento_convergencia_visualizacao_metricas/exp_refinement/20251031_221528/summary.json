@@ -1,0 +1,71 @@
+{
+  "config": {
+    "model": "deepseek/deepseek-v3.2-exp",
+    "embedder": "text-embedding-3-large",
+    "max_iterations": 20,
+    "patience": 10,
+    "delta_threshold": 0.005,
+    "num_ideas_per_iter": 5,
+    "num_human_ideas": 6,
+    "use_clustering": true
+  },
+  "converged": false,
+  "convergence_reason": "Atingido max_iterations (20)",
+  "total_iterations": 2,
+  "best_avg_distance": 0.36174753604468757,
+  "best_min_distance": 0.3249471420948691,
+  "iterations": [
+    {
+      "iteration": 1,
+      "avg_distance": 0.36174753604468757,
+      "min_distance": 0.3249471420948691,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:19:29.159223"
+    },
+    {
+      "iteration": 2,
+      "avg_distance": 0.3843452994041675,
+      "min_distance": 0.3494763352930673,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:21:16.123486"
+    }
+  ],
+  "clustering": {
+    "method": "agglomerative",
+    "n_clusters_total": 12,
+    "selected_cluster_id": 2,
+    "cluster_labels": [
+      7,
+      9,
+      1,
+      1,
+      11,
+      0,
+      6,
+      10,
+      8,
+      2,
+      2,
+      2,
+      5,
+      3,
+      0,
+      4
+    ],
+    "clusters_sizes": {
+      "0": 2,
+      "1": 2,
+      "2": 3,
+      "3": 1,
+      "4": 1,
+      "5": 1,
+      "6": 1,
+      "7": 1,
+      "8": 1,
+      "9": 1,
+      "10": 1,
+      "11": 1
+    },
+    "total_human_ideas_available": 16
+  }
+}

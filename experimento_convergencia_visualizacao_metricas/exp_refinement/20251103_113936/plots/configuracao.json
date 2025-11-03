@@ -1,0 +1,19 @@
+{
+  "configuracao_principal": {
+    "model": "deepseek/deepseek-chat",
+    "embedder": "text-embedding-3-large",
+    "max_iterations": 12,
+    "patience": 6,
+    "delta_threshold": 0.005,
+    "num_ideas_per_iter": 5,
+    "num_human_ideas": 5
+  },
+  "clustering": null,
+  "resultados": {
+    "total_iterations": 6,
+    "converged": false,
+    "convergence_reason": "Atingido max_iterations (12)",
+    "best_avg_distance": 0.40398382953460066,
+    "best_min_distance": 0.3040163965638718
+  }
+}

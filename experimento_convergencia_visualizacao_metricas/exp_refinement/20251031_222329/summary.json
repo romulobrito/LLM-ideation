@@ -1,0 +1,120 @@
+{
+  "config": {
+    "model": "deepseek/deepseek-v3.2-exp",
+    "embedder": "text-embedding-3-large",
+    "max_iterations": 20,
+    "patience": 10,
+    "delta_threshold": 0.005,
+    "num_ideas_per_iter": 5,
+    "num_human_ideas": 6,
+    "use_clustering": true
+  },
+  "converged": false,
+  "convergence_reason": "Atingido max_iterations (20)",
+  "total_iterations": 9,
+  "best_avg_distance": 0.35466641881073135,
+  "best_min_distance": 0.2830095514528619,
+  "iterations": [
+    {
+      "iteration": 1,
+      "avg_distance": 0.35466641881073135,
+      "min_distance": 0.3010769599818225,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:27:47.351374"
+    },
+    {
+      "iteration": 2,
+      "avg_distance": 0.3927105726561805,
+      "min_distance": 0.31419904288447387,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:31:25.235188"
+    },
+    {
+      "iteration": 3,
+      "avg_distance": 0.3829747474238423,
+      "min_distance": 0.32416466730109805,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:34:19.351555"
+    },
+    {
+      "iteration": 4,
+      "avg_distance": 0.3899225738453796,
+      "min_distance": 0.3812647533640512,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:37:50.484412"
+    },
+    {
+      "iteration": 5,
+      "avg_distance": 0.3595610547302124,
+      "min_distance": 0.2830095514528619,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:41:51.933758"
+    },
+    {
+      "iteration": 6,
+      "avg_distance": 0.3627171355879911,
+      "min_distance": 0.32170277139512016,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:44:32.923926"
+    },
+    {
+      "iteration": 7,
+      "avg_distance": 0.3751663944640366,
+      "min_distance": 0.3404260206098033,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:47:42.776117"
+    },
+    {
+      "iteration": 8,
+      "avg_distance": 0.3575449599151924,
+      "min_distance": 0.3159446710613997,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:52:09.733936"
+    },
+    {
+      "iteration": 9,
+      "avg_distance": 0.40556307711893513,
+      "min_distance": 0.35636743977447527,
+      "num_ideas": 5,
+      "timestamp": "2025-10-31T22:56:27.358812"
+    }
+  ],
+  "clustering": {
+    "method": "agglomerative",
+    "n_clusters_total": 12,
+    "selected_cluster_id": 2,
+    "cluster_labels": [
+      7,
+      9,
+      1,
+      1,
+      11,
+      0,
+      6,
+      10,
+      8,
+      2,
+      2,
+      2,
+      5,
+      3,
+      0,
+      4
+    ],
+    "clusters_sizes": {
+      "0": 2,
+      "1": 2,
+      "2": 3,
+      "3": 1,
+      "4": 1,
+      "5": 1,
+      "6": 1,
+      "7": 1,
+      "8": 1,
+      "9": 1,
+      "10": 1,
+      "11": 1
+    },
+    "total_human_ideas_available": 16
+  }
+}
