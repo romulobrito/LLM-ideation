@@ -84,6 +84,11 @@ class RefinementConfig:
     min_cluster_size: int = 5  # Tamanho minimo do cluster (expandir com vizinhos se menor)
     # Parametros de otimizacao e convergencia
     optimize_metric: str = "top3_mean"  # Metrica para convergencia: "avg", "min", "top3_mean", "centroid", "centroid_to_centroid"
+    # Parametros de parada por piora/divergencia (NOVO - Fase 1)
+    enable_divergence_stop: bool = True  # Habilitar parada por divergencia
+    divergence_threshold: float = 0.05  # Piora maxima tolerada em relacao ao melhor valor
+    max_consecutive_worsening: int = 2  # Numero maximo de pioras consecutivas
+    max_distance_from_start: float = 0.30  # Distancia maxima tolerada da iteracao 1
 
 
 class RefinementLoop:
@@ -279,6 +284,7 @@ class RefinementLoop:
         all_generated_ideas = list(current_llm_ideas)  # NOVO: Acumula histórico
         
         no_improvement_count = 0
+        worsening_count = 0  # NOVO: Contador de pioras consecutivas
         best_avg_distance = float("inf")
         
         for iteration in range(1, self.config.max_iterations + 1):
@@ -288,11 +294,17 @@ class RefinementLoop:
             
             # ETAPA 1: CRITIQUE
             print(f"[LOOP] Etapa 1/3: CRITIQUE")
-            # CORREÇÃO: Usar TODAS as ideias geradas até agora, não apenas as últimas
-            # Limitar a 10 ideias mais recentes para evitar prompt muito longo
-            # (DeepSeek V3.2-Exp tem problemas com prompts >8K tokens)
-            critique_llm_ideas = all_generated_ideas[-10:] if len(all_generated_ideas) > 10 else all_generated_ideas
-            print(f"[LOOP] Critique usando {len(critique_llm_ideas)} ideias acumuladas (max 10 para evitar overflow)")
+            # CORRECAO: Usar as melhores ideias + algumas recentes para critique
+            # Isso garante que o feedback seja baseado nas ideias de maior qualidade
+            if len(all_generated_ideas) > 10:
+                best_ideas = self._select_best_ideas(all_generated_ideas, k=5)
+                recent_ideas = all_generated_ideas[-5:]
+                # Remover duplicatas mantendo ordem
+                critique_llm_ideas = list(dict.fromkeys(best_ideas + recent_ideas))[:10]
+                print(f"[LOOP] Critique usando {len(critique_llm_ideas)} ideias (5 melhores + 5 recentes)")
+            else:
+                critique_llm_ideas = all_generated_ideas
+                print(f"[LOOP] Critique usando {len(critique_llm_ideas)} ideias acumuladas")
             
             critique_json = critique_step(
                 invitation=self.config.invitation,
@@ -400,22 +412,30 @@ class RefinementLoop:
                 # Houve melhoria significativa
                 best_avg_distance = current_metric
                 no_improvement_count = 0
-                print(f"[LOOP] ✅ Melhoria detectada: {improvement:.4f}")
+                worsening_count = 0
+                print(f"[LOOP] Melhoria detectada: {improvement:.4f}")
+            elif abs(current_metric - best_avg_distance) <= self.config.delta_threshold:
+                # CORRECAO: Estabilizado no melhor valor (dentro da janela de tolerancia)
+                no_improvement_count += 1
+                worsening_count = 0
+                print(f"[LOOP] Estabilizado no melhor valor ±{self.config.delta_threshold:.4f} ({no_improvement_count}/{self.config.patience})")
             else:
-                # Sem melhoria significativa
+                # Sem melhoria e nao estabilizado
                 no_improvement_count += 1
                 
-                # Verificar se está piorando ou estagnando
-                if avg_dist > best_avg_distance:
-                    print(f"[LOOP] ⚠️ Piorou: +{avg_dist - best_avg_distance:.4f} ({no_improvement_count}/{self.config.patience})")
+                # Detectar piora (metrica aumentou)
+                if current_metric > best_avg_distance:
+                    worsening_count += 1
+                    piora = current_metric - best_avg_distance
+                    print(f"[LOOP] Piora detectada: +{piora:.4f} (pioras consecutivas: {worsening_count})")
                 else:
-                    print(f"[LOOP] ⏸️ Estagnado: sem melhoria significativa ({no_improvement_count}/{self.config.patience})")
+                    worsening_count = 0
                 
                 if no_improvement_count >= self.config.patience:
-                    # Determinar se convergiu (estabilizou) ou divergiu (piorou)
-                    if avg_dist > best_avg_distance * 1.05:  # Piorou mais de 5%
+                    # CORRECAO: Usar current_metric em vez de avg_dist
+                    if current_metric > best_avg_distance * 1.05:  # Piorou mais de 5%
                         self.converged = False
-                        self.convergence_reason = f"DIVERGENCIA: Distancias aumentaram por {self.config.patience} iteracoes (piorou {((avg_dist/best_avg_distance - 1)*100):.1f}%)"
+                        self.convergence_reason = f"DIVERGENCIA: Metrica aumentou por {self.config.patience} iteracoes (piorou {((current_metric/best_avg_distance - 1)*100):.1f}%)"
                     else:
                         self.converged = True
                         self.convergence_reason = f"ESTABILIZACAO: Sem melhoria significativa por {self.config.patience} iteracoes"
@@ -423,10 +443,37 @@ class RefinementLoop:
                     print(f"\n[LOOP] {self.convergence_reason}")
                     break
             
+            # NOVO: Verificacoes de parada por divergencia (se habilitado)
+            if self.config.enable_divergence_stop and iteration > 1:
+                # 1. Piora excessiva em relacao ao melhor valor
+                if current_metric > best_avg_distance + self.config.divergence_threshold:
+                    self.converged = False
+                    piora_total = current_metric - best_avg_distance
+                    self.convergence_reason = f"DIVERGENCIA EXCESSIVA: Metrica piorou {piora_total:.4f} (threshold: {self.config.divergence_threshold})"
+                    print(f"\n[LOOP] {self.convergence_reason}")
+                    break
+                
+                # 2. Pioras consecutivas
+                if worsening_count >= self.config.max_consecutive_worsening:
+                    self.converged = False
+                    self.convergence_reason = f"PIORA CONSECUTIVA: {worsening_count} iteracoes consecutivas piorando (max: {self.config.max_consecutive_worsening})"
+                    print(f"\n[LOOP] {self.convergence_reason}")
+                    break
+                
+                # 3. Afastamento excessivo da iteracao 1
+                if dist_from_iter1 > self.config.max_distance_from_start:
+                    self.converged = False
+                    self.convergence_reason = f"AFASTAMENTO EXCESSIVO: Distancia da Iter 1 = {dist_from_iter1:.4f} (max: {self.config.max_distance_from_start})"
+                    print(f"\n[LOOP] {self.convergence_reason}")
+                    break
+            
             # Atualizar ideias para proxima iteracao
-            current_llm_ideas = new_ideas
-            all_generated_ideas.extend(new_ideas)  # NOVO: Acumular no histórico
+            all_generated_ideas.extend(new_ideas)  # Acumular no histórico
             print(f"[LOOP] Total de ideias acumuladas: {len(all_generated_ideas)}")
+            
+            # CORRECAO: Manter as melhores ideias para proxima iteracao
+            # Isso garante que as boas ideias sejam mantidas como referencia
+            current_llm_ideas = self._select_best_ideas(all_generated_ideas, k=5)
         
         # Finalizar
         if not self.converged:
@@ -436,6 +483,8 @@ class RefinementLoop:
         # Salvar resumo
         if self.config.output_dir:
             self._save_summary()
+            # Salvar graficos e configuracoes
+            self._save_plots_and_config()
         
         print("\n" + "="*60)
         print("REFINEMENT LOOP CONCLUIDO")
@@ -470,6 +519,34 @@ class RefinementLoop:
         
         print(f"[LOOP] Geradas {len(initial_ideas)} ideias iniciais")
         return initial_ideas
+    
+    def _select_best_ideas(self, all_ideas: List[str], k: int = 5) -> List[str]:
+        """
+        Seleciona as k melhores ideias por distancia minima as ideias humanas.
+        
+        Args:
+            all_ideas: Lista de todas as ideias geradas
+            k: Numero de melhores ideias a selecionar
+        
+        Returns:
+            Lista com as k melhores ideias
+        """
+        if len(all_ideas) <= k:
+            return all_ideas
+        
+        # Calcular distancias
+        embeddings = embed_texts(self.embedder, all_ideas)
+        distances = []
+        for emb in embeddings:
+            dists_to_humans = [cosine_distance(emb, h) for h in self.human_embeddings]
+            distances.append(min(dists_to_humans))
+        
+        # Selecionar k melhores (menores distancias)
+        indices = sorted(range(len(distances)), key=lambda i: distances[i])[:k]
+        best_ideas = [all_ideas[i] for i in indices]
+        
+        print(f"[LOOP] Selecionadas {len(best_ideas)} melhores ideias de {len(all_ideas)} totais")
+        return best_ideas
     
     def _compute_distances(self, llm_ideas: List[str]) -> Tuple[float, float, List[float], float, float, float, float]:
         """
@@ -599,6 +676,502 @@ class RefinementLoop:
             json.dump(summary, f, indent=2, ensure_ascii=False)
         
         print(f"[LOOP] Resumo salvo em: {summary_file}")
+    
+    def _save_plots_and_config(self) -> None:
+        """Salva todos os graficos (convergencia, trajetoria, UMAP 3D) e configuracoes principais."""
+        if not self.experiment_dir:
+            return
+        
+        try:
+            import plotly.graph_objects as go
+            
+            plots_dir = self.experiment_dir / "plots"
+            plots_dir.mkdir(exist_ok=True)
+            
+            # 1. Grafico de Convergencia (multiplas metricas)
+            iterations = [r.iteration for r in self.results]
+            avg_distances = [r.avg_distance for r in self.results]
+            min_distances = [r.min_distance for r in self.results]
+            
+            top3_distances = [getattr(r, 'top3_mean_distance', None) for r in self.results]
+            top3_distances = [d for d in top3_distances if d is not None]
+            
+            centroid_distances = [getattr(r, 'centroid_distance', None) for r in self.results]
+            centroid_distances = [d for d in centroid_distances if d is not None]
+            
+            c2c_distances = [getattr(r, 'centroid_to_centroid', None) for r in self.results]
+            c2c_distances = [d for d in c2c_distances if d is not None]
+            
+            fig_conv = go.Figure()
+            
+            fig_conv.add_trace(go.Scatter(
+                x=iterations,
+                y=avg_distances,
+                mode="lines+markers",
+                name="Media (avg)",
+                line=dict(color="blue", width=2, dash="dot"),
+                marker=dict(size=6)
+            ))
+            
+            fig_conv.add_trace(go.Scatter(
+                x=iterations,
+                y=min_distances,
+                mode="lines+markers",
+                name="Minima (min)",
+                line=dict(color="green", width=2, dash="dot"),
+                marker=dict(size=6)
+            ))
+            
+            if top3_distances and len(top3_distances) == len(iterations):
+                fig_conv.add_trace(go.Scatter(
+                    x=iterations,
+                    y=top3_distances,
+                    mode="lines+markers",
+                    name="Top-3 Media (OTIMIZACAO)",
+                    line=dict(color="red", width=3),
+                    marker=dict(size=10)
+                ))
+            
+            if centroid_distances and len(centroid_distances) == len(iterations):
+                fig_conv.add_trace(go.Scatter(
+                    x=iterations,
+                    y=centroid_distances,
+                    mode="lines+markers",
+                    name="Centroide (media)",
+                    line=dict(color="purple", width=2, dash="dot"),
+                    marker=dict(size=6)
+                ))
+            
+            if c2c_distances and len(c2c_distances) == len(iterations):
+                fig_conv.add_trace(go.Scatter(
+                    x=iterations,
+                    y=c2c_distances,
+                    mode="lines+markers",
+                    name="Centroid-to-Centroid (ESTAVEL)",
+                    line=dict(color="orange", width=3),
+                    marker=dict(size=10, symbol="diamond")
+                ))
+            
+            fig_conv.update_layout(
+                xaxis_title="Iteracao",
+                yaxis_title="Distancia Coseno",
+                hovermode="x unified",
+                template="plotly_white",
+                height=600,
+                width=1200,
+                title="Grafico de Convergencia - Multiplas Metricas"
+            )
+            
+            # Salvar HTML e PNG
+            fig_conv.write_html(str(plots_dir / "convergencia.html"))
+            try:
+                fig_conv.write_image(str(plots_dir / "convergencia.png"), width=1200, height=600, scale=2)
+            except Exception:
+                print("[LOOP] Nao foi possivel salvar PNG (kaleido nao disponivel). HTML salvo.")
+            
+            print(f"[LOOP] Grafico de convergencia salvo em: {plots_dir / 'convergencia.html'}")
+            
+            # 2. Grafico de Trajetoria (distancia da iteracao 1)
+            iter1_distances = [getattr(r, 'distance_from_iter1', None) for r in self.results]
+            iter1_distances = [d for d in iter1_distances if d is not None]
+            
+            if iter1_distances and len(iter1_distances) == len(iterations):
+                fig_traj = go.Figure()
+                
+                fig_traj.add_trace(go.Scatter(
+                    x=iterations,
+                    y=iter1_distances,
+                    mode="lines+markers",
+                    name="Distancia da Iter 1",
+                    line=dict(color="teal", width=3),
+                    marker=dict(size=10, symbol="circle"),
+                    fill='tozeroy',
+                    fillcolor='rgba(0, 128, 128, 0.1)'
+                ))
+                
+                fig_traj.add_hline(y=0, line_dash="dash", line_color="gray",
+                                  annotation_text="Baseline (Iter 1)",
+                                  annotation_position="right")
+                
+                fig_traj.update_layout(
+                    xaxis_title="Iteracao",
+                    yaxis_title="Distancia Coseno (Centroide)",
+                    hovermode="x unified",
+                    template="plotly_white",
+                    height=600,
+                    width=1200,
+                    title="Trajetoria de Convergencia - Distancia da Iteracao 1"
+                )
+                
+                # Salvar HTML e PNG
+                fig_traj.write_html(str(plots_dir / "trajetoria_iter1.html"))
+                try:
+                    fig_traj.write_image(str(plots_dir / "trajetoria_iter1.png"), width=1200, height=600, scale=2)
+                except Exception:
+                    print("[LOOP] Nao foi possivel salvar PNG (kaleido nao disponivel). HTML salvo.")
+                
+                print(f"[LOOP] Grafico de trajetoria salvo em: {plots_dir / 'trajetoria_iter1.html'}")
+            
+            # 3. Salvar configuracoes principais
+            config_summary = {
+                "configuracao_principal": {
+                    "model": self.config.model,
+                    "embedder": self.config.embedder_name,
+                    "max_iterations": self.config.max_iterations,
+                    "patience": self.config.patience,
+                    "delta_threshold": self.config.delta_threshold,
+                    "num_ideas_per_iter": self.config.num_ideas_per_iter,
+                    "temperature": self.config.temperature,
+                    "max_tokens": self.config.max_tokens,
+                    "optimize_metric": getattr(self.config, 'optimize_metric', 'avg'),
+                    "num_human_ideas": len(self.config.human_ideas),
+                },
+                "clustering": {
+                    "usado": self.config.use_clustering,
+                    "metodo": self.config.clustering_method if self.config.use_clustering else None,
+                    "n_clusters": self.config.n_clusters if self.config.use_clustering else None,
+                    "distance_threshold": self.config.distance_threshold if self.config.use_clustering else None,
+                    "min_cluster_size": getattr(self.config, 'min_cluster_size', None),
+                    "selected_cluster_id": getattr(self, 'selected_cluster_id', None) if self.config.use_clustering else None,
+                },
+                "norte_fixo": {
+                    "usado": self.config.use_north_star,
+                    "model": self.config.north_star_model if self.config.use_north_star else None,
+                },
+                "parada_divergencia": {
+                    "habilitado": getattr(self.config, 'enable_divergence_stop', False),
+                    "threshold": getattr(self.config, 'divergence_threshold', None),
+                    "max_consecutive_worsening": getattr(self.config, 'max_consecutive_worsening', None),
+                    "max_distance_from_start": getattr(self.config, 'max_distance_from_start', None),
+                },
+                "resultados": {
+                    "total_iterations": len(self.results),
+                    "converged": self.converged,
+                    "convergence_reason": self.convergence_reason,
+                    "best_avg_distance": min(r.avg_distance for r in self.results) if self.results else None,
+                    "best_min_distance": min(r.min_distance for r in self.results) if self.results else None,
+                }
+            }
+            
+            config_file = plots_dir / "configuracao.json"
+            with open(config_file, "w", encoding="utf-8") as f:
+                json.dump(config_summary, f, indent=2, ensure_ascii=False)
+            
+            print(f"[LOOP] Configuracao principal salva em: {config_file}")
+            
+            # 4. Grafico UMAP 3D (se disponivel)
+            try:
+                from umap import UMAP
+                UMAP_AVAILABLE = True
+            except ImportError:
+                UMAP_AVAILABLE = False
+                print("[LOOP] UMAP nao disponivel. Grafico UMAP 3D nao sera gerado.")
+            
+            if UMAP_AVAILABLE:
+                try:
+                    import pandas as pd
+                    
+                    print("[LOOP] Gerando grafico UMAP 3D...")
+                    
+                    # Coletar todas as ideias e embeddings
+                    all_embeddings = []
+                    all_labels = []
+                    all_types = []
+                    all_iterations = []
+                    all_distances = []
+                    all_cluster_ids = []
+                    
+                    # Ideias humanas (usadas no experimento)
+                    human_embeddings_used = embed_texts(self.embedder, self.config.human_ideas)
+                    num_human_used = len(self.config.human_ideas)
+                    
+                    # Verificar se clustering foi usado
+                    use_clustering_viz = self.config.use_clustering
+                    cluster_labels = getattr(self, 'cluster_labels', [])
+                    selected_cluster = getattr(self, 'selected_cluster_id', None)
+                    
+                    # Carregar TODAS as ideias humanas disponiveis (para visualizacao completa)
+                    all_human_ideas = []
+                    if self.all_human_ideas:
+                        all_human_ideas = self.all_human_ideas
+                    else:
+                        try:
+                            from experiment_iterativo import load_references_from_fs
+                            all_human_ideas = load_references_from_fs("ideas-exp/human")
+                        except:
+                            all_human_ideas = self.config.human_ideas
+                    
+                    human_embeddings_all = embed_texts(self.embedder, all_human_ideas)
+                    
+                    # Adicionar ideias humanas
+                    if human_embeddings_all:
+                        for i, emb in enumerate(human_embeddings_all):
+                            all_embeddings.append(emb)
+                            all_labels.append(f"Humana {i+1}")
+                            
+                            cluster_id = cluster_labels[i] if i < len(cluster_labels) else -1
+                            all_cluster_ids.append(cluster_id)
+                            
+                            if use_clustering_viz:
+                                if cluster_id == selected_cluster:
+                                    all_types.append("humana_cluster_selecionado")
+                                elif cluster_id >= 0:
+                                    all_types.append("humana_outro_cluster")
+                                else:
+                                    all_types.append("humana_nao_usada")
+                            else:
+                                if i < num_human_used:
+                                    all_types.append("humana_usada")
+                                else:
+                                    all_types.append("humana_nao_usada")
+                            
+                            all_iterations.append(0)
+                            all_distances.append(0.0)
+                    
+                    # Adicionar ideias geradas
+                    for result in self.results:
+                        iter_embeddings = embed_texts(self.embedder, result.generated_ideas)
+                        iter_distances = result.individual_distances if result.individual_distances else []
+                        
+                        # Recalcular se nao estiver salvo
+                        if not iter_distances or len(iter_distances) != len(result.generated_ideas):
+                            iter_distances = []
+                            for emb in iter_embeddings:
+                                dists_to_humans = [cosine_distance(emb, h_emb) for h_emb in human_embeddings_used]
+                                min_dist = min(dists_to_humans) if dists_to_humans else 0.0
+                                iter_distances.append(min_dist)
+                        
+                        for i, emb in enumerate(iter_embeddings):
+                            all_embeddings.append(emb)
+                            all_labels.append(f"Iter {result.iteration} - Ideia {i+1}")
+                            all_types.append("gerada")
+                            all_cluster_ids.append(-1)
+                            all_iterations.append(result.iteration)
+                            all_distances.append(iter_distances[i] if i < len(iter_distances) else 0.0)
+                    
+                    if all_embeddings:
+                        # Aplicar UMAP
+                        embeddings_array = np.array(all_embeddings)
+                        n_neighbors = min(15, len(embeddings_array) - 1)
+                        
+                        umap_reducer = UMAP(
+                            n_components=3,
+                            random_state=42,
+                            n_neighbors=n_neighbors,
+                            min_dist=0.1,
+                            metric='cosine'
+                        )
+                        embeddings_umap = umap_reducer.fit_transform(embeddings_array)
+                        
+                        # DataFrame
+                        df_umap = pd.DataFrame({
+                            'x': embeddings_umap[:, 0],
+                            'y': embeddings_umap[:, 1],
+                            'z': embeddings_umap[:, 2],
+                            'label': all_labels,
+                            'tipo': all_types,
+                            'cluster_id': all_cluster_ids,
+                            'iteracao': all_iterations,
+                            'distancia': all_distances
+                        })
+                        
+                        # Criar figura 3D
+                        fig_umap = go.Figure()
+                        
+                        # Ideias humanas
+                        if use_clustering_viz:
+                            # Cluster selecionado
+                            df_cluster_selected = df_umap[df_umap['tipo'] == 'humana_cluster_selecionado']
+                            if len(df_cluster_selected) > 0:
+                                fig_umap.add_trace(go.Scatter3d(
+                                    x=df_cluster_selected['x'], y=df_cluster_selected['y'], z=df_cluster_selected['z'],
+                                    mode='markers',
+                                    marker=dict(size=14, color='darkred', symbol='diamond', line=dict(color='black', width=3)),
+                                    name=f'Cluster {selected_cluster} (SELECIONADO)',
+                                    text=df_cluster_selected['label'],
+                                    hovertemplate="<b>%{text}</b><br>Cluster: %{customdata} (SELECIONADO)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
+                                    customdata=df_cluster_selected['cluster_id']
+                                ))
+                            
+                            # Outros clusters
+                            df_outros = df_umap[df_umap['tipo'] == 'humana_outro_cluster']
+                            if len(df_outros) > 0:
+                                cluster_colors = {
+                                    0: 'lightblue', 1: 'lightgreen', 2: 'lightyellow', 3: 'lightpink',
+                                    4: 'lightcoral', 5: 'lightcyan', 6: 'lavender', 7: 'lightsalmon',
+                                }
+                                
+                                for cluster_id in df_outros['cluster_id'].unique():
+                                    df_cluster = df_outros[df_outros['cluster_id'] == cluster_id]
+                                    color = cluster_colors.get(cluster_id, 'lightgray')
+                                    
+                                    fig_umap.add_trace(go.Scatter3d(
+                                        x=df_cluster['x'], y=df_cluster['y'], z=df_cluster['z'],
+                                        mode='markers',
+                                        marker=dict(size=10, color=color, symbol='diamond', line=dict(color='gray', width=1), opacity=0.4),
+                                        name=f'Cluster {cluster_id}',
+                                        text=df_cluster['label'],
+                                        hovertemplate="<b>%{text}</b><br>Cluster: %{customdata}<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
+                                        customdata=df_cluster['cluster_id']
+                                    ))
+                        else:
+                            # Humanas USADAS
+                            df_human_used = df_umap[df_umap['tipo'] == 'humana_usada']
+                            if len(df_human_used) > 0:
+                                fig_umap.add_trace(go.Scatter3d(
+                                    x=df_human_used['x'], y=df_human_used['y'], z=df_human_used['z'],
+                                    mode='markers',
+                                    marker=dict(size=12, color='darkred', symbol='diamond', line=dict(color='black', width=2)),
+                                    name='Humanas (USADAS)',
+                                    text=df_human_used['label'],
+                                    hovertemplate="<b>%{text} - USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                                ))
+                            
+                            # Humanas NAO USADAS
+                            df_human_not_used = df_umap[df_umap['tipo'] == 'humana_nao_usada']
+                            if len(df_human_not_used) > 0:
+                                fig_umap.add_trace(go.Scatter3d(
+                                    x=df_human_not_used['x'], y=df_human_not_used['y'], z=df_human_not_used['z'],
+                                    mode='markers',
+                                    marker=dict(size=10, color='orange', symbol='diamond', line=dict(color='darkorange', width=1), opacity=0.5),
+                                    name='Humanas (NAO USADAS)',
+                                    text=df_human_not_used['label'],
+                                    hovertemplate="<b>%{text} - NAO USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                                ))
+                        
+                        # Ideias geradas
+                        df_generated = df_umap[df_umap['tipo'] == 'gerada']
+                        
+                        if len(df_generated) > 0:
+                            # Melhor ideia global
+                            best_idx = df_generated['distancia'].idxmin()
+                            best_row = df_generated.loc[best_idx]
+                            df_gen_normal = df_generated.drop(best_idx)
+                            
+                            # Ideias normais
+                            if len(df_gen_normal) > 0:
+                                fig_umap.add_trace(go.Scatter3d(
+                                    x=df_gen_normal['x'], y=df_gen_normal['y'], z=df_gen_normal['z'],
+                                    mode='markers',
+                                    marker=dict(
+                                        size=6,
+                                        color=df_gen_normal['iteracao'],
+                                        colorscale='Viridis',
+                                        colorbar=dict(title="Iteracao", x=1.15),
+                                        symbol='circle'
+                                    ),
+                                    name='Ideias Geradas',
+                                    text=df_gen_normal['label'],
+                                    customdata=df_gen_normal['distancia'],
+                                    hovertemplate="<b>%{text}</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<br>Dist: %{customdata:.4f}<extra></extra>"
+                                ))
+                            
+                            # Melhor ideia
+                            fig_umap.add_trace(go.Scatter3d(
+                                x=[best_row['x']], y=[best_row['y']], z=[best_row['z']],
+                                mode='markers',
+                                marker=dict(size=20, color='gold', symbol='diamond', line=dict(color='orange', width=4)),
+                                name='Melhor Ideia',
+                                text=[best_row['label']],
+                                customdata=[best_row['distancia']],
+                                hovertemplate="<b>%{text}</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<br>Dist: %{customdata:.4f}<extra></extra>"
+                            ))
+                            
+                            # Trajetorias (se houver mais de 1 iteracao)
+                            if len(self.results) > 1:
+                                # Trajetoria dos centroides
+                                centroids_x, centroids_y, centroids_z = [], [], []
+                                for iter_num in range(1, len(self.results) + 1):
+                                    df_iter = df_generated[df_generated['iteracao'] == iter_num]
+                                    if len(df_iter) > 0:
+                                        centroids_x.append(df_iter['x'].mean())
+                                        centroids_y.append(df_iter['y'].mean())
+                                        centroids_z.append(df_iter['z'].mean())
+                                
+                                if len(centroids_x) > 1:
+                                    fig_umap.add_trace(go.Scatter3d(
+                                        x=centroids_x, y=centroids_y, z=centroids_z,
+                                        mode='lines+markers+text',
+                                        line=dict(color='cyan', width=4, dash='solid'),
+                                        marker=dict(size=8, color='cyan', symbol='circle', line=dict(color='darkblue', width=2)),
+                                        text=[f"{i}" for i in range(1, len(centroids_x) + 1)],
+                                        textposition='top center',
+                                        textfont=dict(size=14, color='darkblue', family='Arial Black'),
+                                        name='Trajetoria (Centroides)',
+                                        hovertemplate="<b>Centroide Iter %{text}</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                                    ))
+                                
+                                # Trajetoria das melhores ideias
+                                best_x, best_y, best_z = [], [], []
+                                for iter_num in range(1, len(self.results) + 1):
+                                    df_iter = df_generated[df_generated['iteracao'] == iter_num]
+                                    if len(df_iter) > 0:
+                                        best_iter_idx = df_iter['distancia'].idxmin()
+                                        best_iter_row = df_iter.loc[best_iter_idx]
+                                        best_x.append(best_iter_row['x'])
+                                        best_y.append(best_iter_row['y'])
+                                        best_z.append(best_iter_row['z'])
+                                
+                                if len(best_x) > 1:
+                                    fig_umap.add_trace(go.Scatter3d(
+                                        x=best_x, y=best_y, z=best_z,
+                                        mode='lines+markers+text',
+                                        line=dict(color='magenta', width=3, dash='solid'),
+                                        marker=dict(size=8, color='magenta', symbol='diamond', line=dict(color='purple', width=2)),
+                                        text=[f"{i}" for i in range(1, len(best_x) + 1)],
+                                        textposition='bottom center',
+                                        textfont=dict(size=14, color='purple', family='Arial Black'),
+                                        name='Trajetoria (Melhores)',
+                                        hovertemplate="<b>Melhor Iter %{text}</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
+                                    ))
+                        
+                        # Layout
+                        fig_umap.update_layout(
+                            scene=dict(
+                                xaxis_title="UMAP 1",
+                                yaxis_title="UMAP 2",
+                                zaxis_title="UMAP 3",
+                                bgcolor='rgba(240,240,240,0.9)',
+                            ),
+                            title=dict(
+                                text="Evolução das Ideias no Espaço Semântico (UMAP 3D)",
+                                x=0.5,
+                                xanchor='center'
+                            ),
+                            showlegend=True,
+                            legend=dict(
+                                x=0.02,
+                                y=0.98,
+                                bgcolor='rgba(255,255,255,0.8)',
+                                bordercolor='black',
+                                borderwidth=1
+                            ),
+                            height=700,
+                            width=1200,
+                            hovermode='closest'
+                        )
+                        
+                        # Salvar
+                        fig_umap.write_html(str(plots_dir / "umap_3d.html"))
+                        print(f"[LOOP] Grafico UMAP 3D salvo: {plots_dir / 'umap_3d.html'}")
+                        
+                        try:
+                            fig_umap.write_image(str(plots_dir / "umap_3d.png"), width=1200, height=700, scale=2)
+                            print(f"[LOOP] Imagem PNG UMAP 3D salva: {plots_dir / 'umap_3d.png'}")
+                        except Exception as e:
+                            print(f"[LOOP] PNG UMAP nao gerado (kaleido pode ter limitacoes com 3D): {e}")
+                
+                except Exception as e:
+                    print(f"[LOOP] Erro ao gerar UMAP 3D: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+        except ImportError:
+            print("[LOOP] Plotly nao disponivel. Graficos nao serao salvos.")
+        except Exception as e:
+            print(f"[LOOP] Erro ao salvar graficos: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 # Exemplo de uso (para testes)
