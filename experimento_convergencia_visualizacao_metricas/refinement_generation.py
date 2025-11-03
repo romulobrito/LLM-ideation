@@ -30,6 +30,12 @@ And also these writing directives:
 
 Your task is to creatively generate {num_ideas} short-story ideas based on the invitation and directives.
 
+CRITICAL CRAFT REQUIREMENT:
+- The directives above contain SPECIFIC craft patterns derived from high-quality story ideas
+- Follow the patterns and craft elements specified in the directives carefully
+- Apply the REPLACE, ADD, and KEEP guidance to incorporate these proven craft elements
+- Focus on the SPECIFIC character types, settings, plot structures, and emotional tones indicated
+
 CRITICAL FORMATTING REQUIREMENTS:
 - Generate EXACTLY {num_ideas} separate ideas
 - Number each idea: 1., 2., 3., etc.

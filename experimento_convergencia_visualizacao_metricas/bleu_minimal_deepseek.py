@@ -514,6 +514,21 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
         for attempt in range(1, max_attempts + 1):
             try:
                 resp = client.chat.completions.create(**call_params)
+                
+                # CORRECAO: Verificar se resposta tem choices antes de considerar sucesso
+                if not getattr(resp, "choices", None) or len(resp.choices) == 0:
+                    # Resposta valida mas sem choices - tratar como erro e tentar novamente
+                    error_msg = "Resposta da API sem choices"
+                    if attempt < max_attempts:
+                        print(f"[RETRY] {error_msg} (tentativa {attempt}/{max_attempts}). Aguardando e tentando novamente...")
+                        sleep_seconds = 1.5 ** attempt
+                        time.sleep(sleep_seconds)
+                        continue
+                    else:
+                        # Esgotou tentativas - lancar erro detalhado
+                        raise RuntimeError(f"{error_msg}. Resposta recebida: {str(resp)[:200]}")
+                
+                # Resposta valida com choices - sucesso
                 break
             except Exception as api_error:
                 # Extrair detalhes quando possivel
@@ -551,7 +566,10 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
                     simplified_params.pop('extra_body', None)
                     try:
                         resp = client.chat.completions.create(**simplified_params)
-                        break
+                        # CORRECAO: Verificar se resposta tem choices
+                        if getattr(resp, "choices", None) and len(resp.choices) > 0:
+                            break
+                        # Se nao tem choices, continua e levanta o ultimo erro
                     except Exception:
                         # Mantem o ultimo erro
                         pass
@@ -567,7 +585,23 @@ def call_deepseek(prompt: str, model: str="deepseek/deepseek-chat", max_tokens: 
         
         # Extracao robusta de texto (cobre respostas multimodais e modelos de raciocinio)
         if not getattr(resp, "choices", None) or len(resp.choices) == 0:
-            raise RuntimeError("Resposta sem choices do modelo.")
+            # Log detalhado para debug
+            error_info = f"Resposta sem choices do modelo {model}."
+            if hasattr(resp, "model"):
+                error_info += f"\nModelo recebido: {resp.model}"
+            if hasattr(resp, "id"):
+                error_info += f"\nID da resposta: {resp.id}"
+            if hasattr(resp, "usage"):
+                error_info += f"\nUsage: {resp.usage}"
+            
+            # Tentar logar resposta completa (se possível)
+            try:
+                resp_str = str(resp)[:500]  # Primeiros 500 chars
+                error_info += f"\n\nResposta completa (primeiros 500 chars):\n{resp_str}"
+            except Exception:
+                pass
+            
+            raise RuntimeError(error_info)
         msg = getattr(resp.choices[0], "message", None)
         
         # Helper: detecta se texto parece conter JSON array

@@ -38,7 +38,7 @@ except ImportError:
 # Configuracao da pagina
 st.set_page_config(
     page_title="Refinement Loop - Diversidade LLM",
-    page_icon="🔄",
+    page_icon="RL",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -64,11 +64,11 @@ load_env_vars()
 
 
 # Titulo principal
-st.title("🔄 Refinement Loop - Diversidade LLM")
+st.title("Refinement Loop - Diversidade LLM")
 
 # Opção de carregar experimento anterior
 st.sidebar.markdown("---")
-st.sidebar.subheader("📂 Carregar Experimento Salvo")
+st.sidebar.subheader("Carregar Experimento Salvo")
 
 exp_base_dir = Path("exp_refinement")
 available_experiments = []
@@ -86,7 +86,7 @@ if available_experiments:
         help="Experimentos ordenados do mais recente para o mais antigo"
     )
     
-    if st.sidebar.button("📊 Visualizar Experimento", use_container_width=True):
+    if st.sidebar.button("Visualizar Experimento", use_container_width=True):
         st.session_state['show_saved_exp'] = True
         st.session_state['selected_exp_dir'] = selected_exp
 else:
@@ -101,7 +101,7 @@ if st.session_state.get('show_saved_exp', False):
         st.stop()
     
     exp_dir = exp_base_dir / selected_exp_name
-    st.subheader(f"📊 Experimento: {selected_exp_name}")
+    st.subheader(f"Experimento: {selected_exp_name}")
     
     # Carregar summary
     summary_file = exp_dir / "summary.json"
@@ -112,14 +112,14 @@ if st.session_state.get('show_saved_exp', False):
     with col1:
         st.metric("Iterações", summary["total_iterations"])
     with col2:
-        st.metric("Convergiu?", "✅" if summary["converged"] else "❌")
+        st.metric("Convergiu?", "Sim" if summary["converged"] else "Nao")
     with col3:
         st.metric("Melhor Dist. Média", f"{summary['best_avg_distance']:.4f}")
     with col4:
         st.metric("Melhor Dist. Mínima", f"{summary['best_min_distance']:.4f}")
     
     # Gráfico de convergência
-    st.subheader("📈 Gráfico de Convergência")
+    st.subheader("Grafico de Convergencia")
     
     iterations = [item["iteration"] for item in summary["iterations"]]
     avg_distances = [item["avg_distance"] for item in summary["iterations"]]
@@ -146,7 +146,7 @@ if st.session_state.get('show_saved_exp', False):
     
     # UMAP 3D
     if UMAP_AVAILABLE:
-        st.subheader("🌐 Visualização UMAP 3D")
+        st.subheader("Visualizacao UMAP 3D")
         
         try:
             from experiment_iterativo import get_embedder, embed_texts, load_references_from_fs, cosine_distance
@@ -170,7 +170,7 @@ if st.session_state.get('show_saved_exp', False):
                 
                 # Informar ao usuário
                 st.info(f"""
-                **📊 Ideias Humanas:**
+                **Ideias Humanas:**
                 - Total disponíveis: {len(human_ideas_all)}
                 - Usadas no experimento: {num_human_used}
                 - Não usadas (contexto): {len(human_ideas_all) - num_human_used}
@@ -192,7 +192,7 @@ if st.session_state.get('show_saved_exp', False):
                     selected_cluster = clustering_info.get("selected_cluster_id", None)
                     cluster_labels = clustering_info.get("cluster_labels", [])
                     st.info(f"""
-                    🎯 **Clustering detectado!**
+                    Clustering detectado!
                     - Método: {clustering_info.get('method', 'unknown')}
                     - Total de clusters: {clustering_info.get('n_clusters_total', 0)}
                     - Cluster selecionado: **{selected_cluster}**
@@ -301,7 +301,7 @@ if st.session_state.get('show_saved_exp', False):
                             x=df_cluster_selected['x'], y=df_cluster_selected['y'], z=df_cluster_selected['z'],
                             mode='markers',
                             marker=dict(size=14, color='darkred', symbol='diamond', line=dict(color='black', width=3)),
-                            name=f'🔴 Cluster {selected_cluster} (SELECIONADO)',
+                            name=f'Cluster {selected_cluster} (SELECIONADO)',
                             text=df_cluster_selected['label'],
                             customdata=df_cluster_selected['cluster_id'],
                             hovertemplate="<b>%{text}</b><br>Cluster: %{customdata} (SELECIONADO)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
@@ -344,7 +344,7 @@ if st.session_state.get('show_saved_exp', False):
                             x=df_human_used['x'], y=df_human_used['y'], z=df_human_used['z'],
                             mode='markers',
                             marker=dict(size=12, color='darkred', symbol='diamond', line=dict(color='black', width=2)),
-                            name='🔴 Humanas (USADAS)',
+                            name='Humanas (USADAS)',
                             text=df_human_used['label'],
                             hovertemplate="<b>%{text} - USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
                         ))
@@ -356,7 +356,7 @@ if st.session_state.get('show_saved_exp', False):
                             x=df_human_not_used['x'], y=df_human_not_used['y'], z=df_human_not_used['z'],
                             mode='markers',
                             marker=dict(size=10, color='orange', symbol='diamond', line=dict(color='darkorange', width=1), opacity=0.5),
-                            name='🟠 Humanas (NÃO USADAS)',
+                            name='Humanas (NAO USADAS)',
                             text=df_human_not_used['label'],
                             hovertemplate="<b>%{text} - NÃO USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
                         ))
@@ -364,15 +364,18 @@ if st.session_state.get('show_saved_exp', False):
                 # DEBUG: Mostrar estatisticas das distancias calculadas
                 df_generated = df_umap[df_umap['tipo'] == 'gerada']
                 if len(df_generated) > 0:
-                    # Encontrar melhor ideia por iteracao
+                    # Melhor ideia GLOBAL (menor distância individual de todas as ideias)
+                    # Isso é independente da métrica de convergência usada no gráfico
+                    best_idx = df_generated['distancia'].idxmin()
+                    best_row = df_generated.loc[best_idx]
+                    print(f"[DEBUG UMAP] Melhor ideia global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}")
+                    
+                    # Mostrar melhor ideia por iteração para debug
                     for iter_num in df_generated['iteracao'].unique():
                         iter_ideas = df_generated[df_generated['iteracao'] == iter_num]
                         min_dist_iter = iter_ideas['distancia'].min()
                         print(f"[DEBUG UMAP] Iter {iter_num}: min_dist={min_dist_iter:.6f}")
                     
-                    best_idx = df_generated['distancia'].idxmin()
-                    best_row = df_generated.loc[best_idx]
-                    print(f"[DEBUG UMAP] Melhor global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}")
                     df_gen_normal = df_generated.drop(best_idx)
                     
                     if len(df_gen_normal) > 0:
@@ -400,6 +403,43 @@ if st.session_state.get('show_saved_exp', False):
                         customdata=[best_row['distancia']],
                         hovertemplate="<b>⭐ %{text}</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<br>Dist: %{customdata:.4f}<extra></extra>"
                     ))
+                    
+                    # Trajetória das MELHORES ideias (rosa/magenta)
+                    if summary["total_iterations"] > 1:
+                        best_x, best_y, best_z = [], [], []
+                        best_iters = []
+                        best_dists = []
+                        
+                        for iter_num in range(1, summary["total_iterations"] + 1):
+                            df_iter = df_generated[df_generated['iteracao'] == iter_num]
+                            if len(df_iter) > 0:
+                                # Encontrar a melhor dessa iteração
+                                best_iter_idx = df_iter['distancia'].idxmin()
+                                best_iter_row = df_iter.loc[best_iter_idx]
+                                best_x.append(best_iter_row['x'])
+                                best_y.append(best_iter_row['y'])
+                                best_z.append(best_iter_row['z'])
+                                best_iters.append(iter_num)
+                                best_dists.append(best_iter_row['distancia'])
+                        
+                        if len(best_x) > 1:
+                            # Linha principal (rosa/magenta)
+                            fig_umap.add_trace(go.Scatter3d(
+                                x=best_x,
+                                y=best_y,
+                                z=best_z,
+                                mode='lines+markers+text',
+                                line=dict(color='magenta', width=3, dash='solid'),
+                                marker=dict(size=8, color='magenta', symbol='diamond',
+                                          line=dict(color='purple', width=2)),
+                                text=[f"{i}" for i in best_iters],  # Números nos diamantes
+                                textposition='bottom center',
+                                textfont=dict(size=14, color='purple', family='Arial Black'),
+                                name='Trajetoria (Melhores)',
+                                customdata=best_dists,
+                                hovertemplate="<b>Melhor Iter %{text}</b><br>Dist: %{customdata:.4f}<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
+                                showlegend=True
+                            ))
                 
                 fig_umap.update_layout(
                     scene=dict(xaxis_title="UMAP 1", yaxis_title="UMAP 2", zaxis_title="UMAP 3"),
@@ -410,12 +450,12 @@ if st.session_state.get('show_saved_exp', False):
                 st.plotly_chart(fig_umap, use_container_width=True)
                 
         except Exception as e:
-            st.error(f"❌ Erro ao gerar visualizações: {e}")
+            st.error(f"Erro ao gerar visualizacoes: {e}")
             import traceback
             st.code(traceback.format_exc())
     
     # Tabela de resultados
-    st.subheader("📋 Tabela de Resultados")
+    st.subheader("Tabela de Resultados")
     df_results = pd.DataFrame([
         {
             "Iteração": item["iteration"],
@@ -428,7 +468,7 @@ if st.session_state.get('show_saved_exp', False):
     st.dataframe(df_results, use_container_width=True, hide_index=True)
     
     # Botão para voltar
-    if st.button("🔙 Voltar para Configuração", type="primary"):
+    if st.button("Voltar para Configuracao", type="primary"):
         st.session_state['show_saved_exp'] = False
         st.rerun()
     
@@ -436,35 +476,35 @@ if st.session_state.get('show_saved_exp', False):
 
 # # Aviso sobre correções implementadas
 # st.info("""
-# **✅ CORREÇÕES IMPLEMENTADAS (v2.0):**
+# **CORRECOES IMPLEMENTADAS (v2.0):**
 
 # 1. **🔄 Histórico Acumulado**: CRITIQUE agora analisa até 20 ideias geradas anteriormente (não apenas as 5 últimas)
 #    - **Antes**: Feedback oscilava porque comparava apenas 5 ideias por vez
 #    - **Depois**: Feedback estável baseado no histórico acumulado
 
-# 2. **🎯 Temperature Ajustada**: Padrão mudou de 0.8 → 0.5
+# 2. Temperature Ajustada: Padrao mudou de 0.8 -> 0.5
 #    - **Recomendado**: 0.3-0.5 para convergência estável
 #    - **Evitar**: >0.7 causa alta variação
 
-# 3. **📊 Detecção de Divergência**: Sistema agora distingue convergência vs. divergência
+# 3. **Deteccao de Divergencia**: Sistema agora distingue convergencia vs. divergencia
 #    - **Antes**: Qualquer estagnação = "convergiu"
 #    - **Depois**: Analisa se melhorou/piorou/estabilizou
 
-# **💡 RESULTADO ESPERADO**: Gráficos mais suaves e convergência real em vez de zigue-zague
+# **RESULTADO ESPERADO**: Graficos mais suaves e convergencia real em vez de zigue-zague
 # """)
 
 # st.markdown("---")
 
 
 # Sidebar: Configuracoes
-st.sidebar.header("⚙️ Configuracao")
+st.sidebar.header("Configuracao")
 
 # Modelo LLM com provedor
-st.sidebar.subheader("🤖 Modelo LLM")
+st.sidebar.subheader("Modelo LLM")
 
 provider = st.sidebar.selectbox(
     "Provedor:",
-    ["OpenAI Direto", "GPT-4o via OpenRouter", "DeepSeek (OpenRouter)", "GPT-5 (OpenRouter) ⚠️ Experimental", "Personalizado"],
+    ["OpenAI Direto", "GPT-4o via OpenRouter", "DeepSeek (OpenRouter)", "GPT-5 (OpenRouter) Experimental", "Personalizado"],
     index=0,
     help="Provedor de API para chamadas LLM"
 )
@@ -478,8 +518,8 @@ if provider == "OpenAI Direto":
     )
 elif provider == "GPT-4o via OpenRouter":
     model = "openai/gpt-4o"
-    st.sidebar.info(f"📌 Modelo: {model}")
-    st.sidebar.success("✅ **ESTÁVEL**: Recomendado para uso em produção")
+    st.sidebar.info(f"Modelo: {model}")
+    st.sidebar.success("ESTAVEL: Recomendado para uso em producao")
 elif provider == "DeepSeek (OpenRouter)":
     model = st.sidebar.selectbox(
         "Modelo:",
@@ -490,7 +530,7 @@ elif provider == "DeepSeek (OpenRouter)":
     
     if model == "deepseek/deepseek-r1":
         st.sidebar.warning("""
-        ⚠️ **ATENÇÃO**: `deepseek-r1` pode falhar no CRITIQUE!
+        ATENCAO: `deepseek-r1` pode falhar no CRITIQUE!
         
         O modelo retorna apenas reasoning sem JSON final.
         
@@ -498,9 +538,9 @@ elif provider == "DeepSeek (OpenRouter)":
         """)
     elif model == "deepseek/deepseek-v3.2-exp":
         st.sidebar.warning("""
-        🆕 **EXPERIMENTAL**: DeepSeek V3.2-Exp
+        EXPERIMENTAL: DeepSeek V3.2-Exp
         
-        ⚠️ **ATENÇÃO**: Pode falhar com prompts grandes!
+        ATENCAO: Pode falhar com prompts grandes!
         
         Problemas conhecidos:
         - Rate limit mais restritivo
@@ -509,19 +549,19 @@ elif provider == "DeepSeek (OpenRouter)":
         **RECOMENDAÇÃO**: Use `deepseek-chat` para estabilidade.
         """)
     else:
-        st.sidebar.success("✅ **ESTÁVEL**: Funciona bem, barato e eficiente!")
+        st.sidebar.success("ESTAVEL: Funciona bem, barato e eficiente!")
     
     st.sidebar.info("""
-    **📋 Modelos:**
-    - `deepseek-chat`: ✅ Recomendado (estável)
-    - `deepseek-v3.2-exp`: 🆕 Novo (experimental)
-    - `deepseek-r1`: ⚠️ Pode falhar no CRITIQUE
+    **Modelos:**
+    - `deepseek-chat`: Recomendado (estavel)
+    - `deepseek-v3.2-exp`: Novo (experimental)
+    - `deepseek-r1`: Pode falhar no CRITIQUE
     """)
-elif provider == "GPT-5 (OpenRouter) ⚠️ Experimental":
+elif provider == "GPT-5 (OpenRouter) Experimental":
     model = "openai/gpt-5"
-    st.sidebar.info(f"📌 Modelo: {model}")
-    st.sidebar.error("⚠️ **EXPERIMENTAL**: GPT-5 é instável e pode retornar apenas reasoning sem JSON.")
-    st.sidebar.warning("💡 **RECOMENDAÇÃO**: Use gpt-4o-mini ou gpt-4o para melhor estabilidade.")
+    st.sidebar.info(f"Modelo: {model}")
+    st.sidebar.error("EXPERIMENTAL: GPT-5 e instavel e pode retornar apenas reasoning sem JSON.")
+    st.sidebar.warning("RECOMENDACAO: Use gpt-4o-mini ou gpt-4o para melhor estabilidade.")
 else:
     model = st.sidebar.text_input(
         "Nome do modelo:",
@@ -530,7 +570,7 @@ else:
     )
 
 # Embedder
-st.sidebar.subheader("🧮 Modelo de Embeddings")
+st.sidebar.subheader("Modelo de Embeddings")
 
 embedder_name = st.sidebar.selectbox(
     "Modelo:",
@@ -548,7 +588,7 @@ embedder_name = st.sidebar.selectbox(
 # Info sobre embeddings OpenAI
 if "text-embedding" in embedder_name:
     st.sidebar.info(f"""
-    **🌐 OpenAI Embeddings**
+    **OpenAI Embeddings**
     
     **Modelo**: {embedder_name}
     
@@ -561,14 +601,14 @@ if "text-embedding" in embedder_name:
     **Vantagem**: Captura nuances e detalhes que 
     embeddings locais (384D) nao detectam.
     
-    ⚠️ **Requer**: OPENAI_API_KEY no .env
+    Requer: OPENAI_API_KEY no .env
     """)
     
     # Verificar se OPENAI_API_KEY existe
     openai_key = os.getenv("OPENAI_API_KEY")
     if not openai_key:
         st.sidebar.error("""
-        ❌ **ERRO**: OPENAI_API_KEY nao encontrada!
+        ERRO: OPENAI_API_KEY nao encontrada!
         
         Adicione ao arquivo `.env`:
         ```
@@ -577,7 +617,7 @@ if "text-embedding" in embedder_name:
         """)
 else:
     st.sidebar.success(f"""
-    **💻 Local (Sentence Transformers)**
+    **Local (Sentence Transformers)**
     
     **Modelo**: {embedder_name}
     **Dimensões**: 384D (MiniLM) ou 768D (MPNet)
@@ -608,7 +648,7 @@ patience = st.sidebar.slider(
     "Patience",
     min_value=1,
     max_value=10,
-    value=3,
+    value=5,  # AJUSTADO: 3 -> 5 (mais tolerante apos correcoes)
     help="Numero de iteracoes sem melhoria antes de parar"
 )
 
@@ -635,6 +675,48 @@ optimize_metric = st.sidebar.selectbox(
 - centroid: dist. media ao centroide humano"""
 )
 
+# NOVO: Parada por divergencia (Fase 1)
+st.sidebar.subheader("Parada por Divergencia")
+
+enable_divergence_stop = st.sidebar.checkbox(
+    "Habilitar Parada por Divergencia",
+    value=True,
+    help="Para o loop se detectar piora/divergencia significativa"
+)
+
+if enable_divergence_stop:
+    divergence_threshold = st.sidebar.number_input(
+        "Threshold de Divergencia",
+        min_value=0.01,
+        max_value=0.2,
+        value=0.08,  # AJUSTADO: 0.05 -> 0.08 (mais tolerante apos correcoes)
+        step=0.01,
+        format="%.2f",
+        help="Piora maxima tolerada em relacao ao melhor valor. Ex: 0.08 = 8% de piora"
+    )
+    
+    max_consecutive_worsening = st.sidebar.slider(
+        "Max Pioras Consecutivas",
+        min_value=1,
+        max_value=5,
+        value=3,  # AJUSTADO: 2 -> 3 (mais tolerante apos correcoes)
+        help="Numero maximo de iteracoes consecutivas piorando antes de parar"
+    )
+    
+    max_distance_from_start = st.sidebar.number_input(
+        "Max Distancia da Iter 1",
+        min_value=0.1,
+        max_value=0.5,
+        value=0.30,
+        step=0.05,
+        format="%.2f",
+        help="Distancia maxima tolerada da iteracao inicial (afastamento excessivo)"
+    )
+else:
+    divergence_threshold = 0.05
+    max_consecutive_worsening = 2
+    max_distance_from_start = 0.30
+
 # Parametros de geracao
 st.sidebar.subheader("Geracao")
 
@@ -650,13 +732,13 @@ temperature = st.sidebar.slider(
     "Temperature",
     min_value=0.0,
     max_value=2.0,
-    value=0.5,  # REDUZIDO: 0.8 → 0.5 para melhor convergência
+    value=0.3,  # AJUSTADO: 0.5 -> 0.3 (mais focado apos correcoes)
     step=0.1,
     help="Temperatura para geracao de ideias. RECOMENDADO: 0.3-0.5 para convergência estável"
 )
 
 if temperature > 0.7:
-    st.sidebar.warning("⚠️ Temperature alta (>0.7) pode causar oscilação. Recomenda-se 0.3-0.5 para convergência.")
+    st.sidebar.warning("Temperature alta (>0.7) pode causar oscilacao. Recomenda-se 0.3-0.5 para convergencia.")
 
 max_tokens = st.sidebar.slider(
     "Max Tokens",
@@ -675,7 +757,7 @@ reasoning_effort = st.sidebar.selectbox(
 )
 
 # NOVO: Norte Fixo
-st.sidebar.subheader("⭐ Norte Fixo (Experimental)")
+st.sidebar.subheader("Norte Fixo (Experimental)")
 
 use_north_star = st.sidebar.checkbox(
     "Usar Norte Fixo Automático",
@@ -692,7 +774,7 @@ if use_north_star:
     )
     
     st.sidebar.info("""
-    **💡 Norte Fixo:**
+    **Norte Fixo:**
     - Analisa ideias humanas UMA VEZ
     - Extrai padrões fundamentais
     - Mantém direção constante
@@ -700,7 +782,7 @@ if use_north_star:
     """)
 else:
     north_star_model = "gpt-4o"
-    st.sidebar.warning("⚠️ Feedback 100% dinâmico (pode oscilar)")
+    st.sidebar.warning("Feedback 100% dinamico (pode oscilar)")
 
 # Diretorio de saida
 st.sidebar.subheader("Saida")
@@ -717,7 +799,7 @@ st.sidebar.markdown("---")
 
 
 # Area principal: Inputs
-st.header("📝 Inputs do Experimento")
+st.header("Inputs do Experimento")
 
 col1, col2 = st.columns(2)
 
@@ -796,7 +878,7 @@ with col2:
                     pass
             
             if temp_ideas:
-                st.info(f"📁 Encontradas {len(temp_ideas)} ideias humanas")
+                st.info(f"Encontradas {len(temp_ideas)} ideias humanas")
                 num_human_ideas = st.slider(
                     "Numero de Ideias Humanas a Usar",
                     min_value=1,
@@ -814,7 +896,7 @@ with col2:
 st.markdown("---")
 
 # Clustering de Ideias Humanas (NOVO)
-st.header("🎯 Clustering de Ideias Humanas")
+st.header("Clustering de Ideias Humanas")
 
 use_clustering = st.checkbox(
     "Usar Clustering",
@@ -893,7 +975,7 @@ if use_clustering:
     )
     
     if cluster_selection_method == "Manual (escolher depois)":
-        st.warning("⚠️ Modo manual ainda nao implementado. Sistema usara automatica.")
+        st.warning("Modo manual ainda nao implementado. Sistema usara automatica.")
         selected_cluster_id = None
     else:
         selected_cluster_id = None
@@ -914,20 +996,20 @@ if use_clustering:
                 content = ideas_path.read_text(encoding="utf-8").strip()
                 all_human_ideas_for_clustering = [line.strip() for line in content.split("\n") if line.strip()]
         
-        st.info(f"📊 Clustering sera aplicado a {len(all_human_ideas_for_clustering)} historias humanas disponiveis")
+        st.info(f"Clustering sera aplicado a {len(all_human_ideas_for_clustering)} historias humanas disponiveis")
     else:
         # Digitadas manualmente: clustering usa as mesmas fornecidas
         all_human_ideas_for_clustering = human_ideas.copy()
-        st.info(f"📊 Clustering sera aplicado a {len(all_human_ideas_for_clustering)} historias fornecidas")
+        st.info(f"Clustering sera aplicado a {len(all_human_ideas_for_clustering)} historias fornecidas")
     
     if len(all_human_ideas_for_clustering) < 3:
-        st.error("❌ Clustering requer pelo menos 3 historias humanas")
+        st.error("Clustering requer pelo menos 3 historias humanas")
         use_clustering = False
 
 st.markdown("---")
 
 # Validacao de chaves de API
-st.header("🔑 Status de Configuracao")
+st.header("Status de Configuracao")
 
 col_status1, col_status2 = st.columns(2)
 
@@ -939,23 +1021,23 @@ with col_status1:
         # Modelo via OpenRouter
         can_run = has_openrouter_key
         if can_run:
-            st.success("✅ Chave OpenRouter configurada")
+            st.success("Chave OpenRouter configurada")
         else:
-            st.error("❌ Nenhuma chave OpenRouter encontrada no .env")
+            st.error("Nenhuma chave OpenRouter encontrada no .env")
             st.info("Configure OPENROUTER_API_KEY no arquivo .env")
     else:
         # Modelo OpenAI direto
         can_run = has_openai_key
         if can_run:
-            st.success("✅ Chave OpenAI configurada")
+            st.success("Chave OpenAI configurada")
         else:
-            st.error("❌ OPENAI_API_KEY não encontrada no .env")
+            st.error("OPENAI_API_KEY nao encontrada no .env")
             st.info("Configure OPENAI_API_KEY no arquivo .env")
 
 with col_status2:
-    st.info(f"🤖 **Modelo selecionado:** `{model}`")
-    st.info(f"🔢 **Iterações máximas:** {max_iterations}")
-    st.info(f"💡 **Ideias por iteração:** {num_ideas_per_iter}")
+    st.info(f"Modelo selecionado: `{model}`")
+    st.info(f"Iteracoes maximas: {max_iterations}")
+    st.info(f"Ideias por iteracao: {num_ideas_per_iter}")
 
 st.markdown("---")
 
@@ -970,7 +1052,7 @@ col_btn1, col_btn2 = st.columns([3, 1])
 
 with col_btn1:
     run_button = st.button(
-        "🚀 Executar Refinement Loop", 
+        "Executar Refinement Loop", 
         type="primary", 
         use_container_width=True, 
         disabled=not can_run or st.session_state["refinement_running"]
@@ -978,31 +1060,31 @@ with col_btn1:
 
 with col_btn2:
     if st.session_state["refinement_running"]:
-        if st.button("⛔ PARAR", type="secondary", use_container_width=True):
+        if st.button("PARAR", type="secondary", use_container_width=True):
             st.session_state["refinement_stop_requested"] = True
-            st.warning("⏸️ Solicitação de parada enviada...")
+            st.warning("Solicitacao de parada enviada...")
             st.rerun()
 
 # Mostrar status de execucao
 if st.session_state["refinement_running"]:
-    st.info("⚙️ **Status:** Experimento em execução... Clique em **PARAR** para interromper.")
+    st.info("Status: Experimento em execucao... Clique em PARAR para interromper.")
 
 if run_button:
     
     # Validar inputs
     if not invitation.strip():
-        st.error("❌ Invitation nao pode estar vazio")
+        st.error("Invitation nao pode estar vazio")
         st.stop()
     
     if not directive.strip():
-        st.error("❌ Directive nao pode estar vazio")
+        st.error("Directive nao pode estar vazio")
         st.stop()
     
     # Carregar ideias humanas de arquivo se necessario
     if human_ideas_mode == "Carregar de arquivo":
         ideas_path = Path(human_ideas_path)
         if not ideas_path.exists():
-            st.error(f"❌ Caminho nao existe: {ideas_path}")
+            st.error(f"Caminho nao existe: {ideas_path}")
             st.stop()
         
         # Carregar todos os .txt do diretorio
@@ -1019,12 +1101,12 @@ if run_button:
         # Aplicar limite do slider
         if num_human_ideas and num_human_ideas < len(human_ideas):
             human_ideas = human_ideas[:num_human_ideas]
-            st.info(f"✅ Usando {num_human_ideas} de {len(human_ideas)} ideias humanas de: {ideas_path}")
+            st.info(f"Usando {num_human_ideas} de {len(human_ideas)} ideias humanas de: {ideas_path}")
         else:
-            st.info(f"✅ Carregadas {len(human_ideas)} ideias humanas de: {ideas_path}")
+            st.info(f"Carregadas {len(human_ideas)} ideias humanas de: {ideas_path}")
     
     if not human_ideas:
-        st.error("❌ Nenhuma ideia humana fornecida")
+        st.error("Nenhuma ideia humana fornecida")
         st.stop()
     
     # Criar configuracao
@@ -1057,6 +1139,11 @@ if run_button:
         min_cluster_size=min_cluster_size if use_clustering else 5,  # NOVO (Fase 1)
         # Parametros de otimizacao (NOVO - Fase 1)
         optimize_metric=optimize_metric,
+        # Parametros de parada por divergencia (NOVO - Fase 1)
+        enable_divergence_stop=enable_divergence_stop,
+        divergence_threshold=divergence_threshold,
+        max_consecutive_worsening=max_consecutive_worsening,
+        max_distance_from_start=max_distance_from_start,
     )
     
     # Marcar como rodando
@@ -1091,13 +1178,13 @@ if run_button:
         
         # Atualizar progresso
         progress_bar.progress(1.0, text="Concluido!")
-        status_text.success(f"✅ Refinement Loop concluido: {len(results)} iteracoes")
+        status_text.success(f"Refinement Loop concluido: {len(results)} iteracoes")
         
     except KeyboardInterrupt:
-        st.warning("⏸️ Experimento interrompido pelo usuário!")
+        st.warning("Experimento interrompido pelo usuario!")
         status_text.warning("Execução interrompida")
     except Exception as e:
-        st.error(f"❌ Erro ao executar Refinement Loop: {e}")
+        st.error(f"Erro ao executar Refinement Loop: {e}")
         import traceback
         st.code(traceback.format_exc())
     finally:
@@ -1110,7 +1197,7 @@ if run_button:
 if "refinement_results" in st.session_state and st.session_state["refinement_results"]:
     
     st.markdown("---")
-    st.header("📊 Resultados")
+    st.header("Resultados")
     
     results: List[IterationResult] = st.session_state["refinement_results"]
     config: RefinementConfig = st.session_state["refinement_config"]
@@ -1131,13 +1218,13 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
         st.metric("Melhor Distancia Minima", f"{best_min:.4f}")
     
     with col4:
-        convergence_status = "✅ Sim" if loop.converged else "❌ Nao"
+        convergence_status = "Sim" if loop.converged else "Nao"
         st.metric("Convergiu?", convergence_status)
     
     st.info(f"**Razao:** {loop.convergence_reason}")
     
     # Grafico de convergencia (MULTIPLAS METRICAS - Fase 1)
-    st.subheader("📈 Grafico de Convergencia")
+    st.subheader("Grafico de Convergencia")
     
     iterations = [r.iteration for r in results]
     avg_distances = [r.avg_distance for r in results]
@@ -1277,11 +1364,11 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
             
             # Interpretacao
             if final_dist < 0.05:
-                st.success("✅ **Baixa mudanca**: As ideias geradas permanecem proximas ao estilo inicial (Iter 1)")
+                st.success("Baixa mudanca: As ideias geradas permanecem proximas ao estilo inicial (Iter 1)")
             elif final_dist < 0.15:
-                st.info("ℹ️ **Mudanca moderada**: Houve evolucao mas ainda mantendo semelhanca com o inicio")
+                st.info("Mudanca moderada: Houve evolucao mas ainda mantendo semelhanca com o inicio")
             else:
-                st.warning("⚠️ **Alta mudanca**: As ideias atuais sao significativamente diferentes do ponto inicial")
+                st.warning("Alta mudanca: As ideias atuais sao significativamente diferentes do ponto inicial")
     else:
         st.info("Metrica 'distance_from_iter1' nao disponivel para este experimento (rodado em versao antiga)")
     
@@ -1290,15 +1377,15 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
     # ============================================================================
     if UMAP_AVAILABLE:
         st.markdown("---")
-        st.subheader("🌐 Visualização UMAP 3D - Evolução das Ideias")
+        st.subheader("Visualizacao UMAP 3D - Evolucao das Ideias")
         
         # Toggle para trajetórias
         col_toggle1, col_toggle2 = st.columns(2)
         with col_toggle1:
             show_centroid_trajectory = st.checkbox(
-                "🎯 Mostrar trajetória dos centroides",
+                "Mostrar trajetoria dos centroides",
                 value=True,
-                help="Linha conectando o ponto médio das ideias de cada iteração (tendência geral)"
+                help="Linha conectando o ponto medio das ideias de cada iteracao (tendencia geral)"
             )
         with col_toggle2:
             show_best_trajectory = st.checkbox(
@@ -1342,7 +1429,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                     selected_cluster = loop.selected_cluster_id if hasattr(loop, 'selected_cluster_id') else None
                     
                     st.info(f"""
-                    🎯 **Clustering ativo!**
+                    Clustering ativo!
                     - Total de ideias humanas disponíveis: {len(human_ideas_all)}
                     - Cluster selecionado: **{selected_cluster}**
                     - Ideias no cluster: {len([l for l in cluster_labels if l == selected_cluster])}
@@ -1369,7 +1456,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 else:
                     # SEM CLUSTERING: mostrar todas, mas distinguir usadas/não usadas
                     st.info(f"""
-                    📊 **Ideias Humanas:**
+                    **Ideias Humanas:**
                     - Total disponíveis: {len(human_ideas_all)}
                     - Usadas no experimento: {num_human_used}
                     - Não usadas (contexto): {len(human_ideas_all) - num_human_used}
@@ -1450,7 +1537,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                             x=df_cluster_selected['x'], y=df_cluster_selected['y'], z=df_cluster_selected['z'],
                             mode='markers',
                             marker=dict(size=14, color='darkred', symbol='diamond', line=dict(color='black', width=3)),
-                            name=f'🔴 Cluster {selected_cluster} (SELECIONADO)',
+                            name=f'Cluster {selected_cluster} (SELECIONADO)',
                             text=df_cluster_selected['label'],
                             customdata=df_cluster_selected['cluster_id'],
                             hovertemplate="<b>%{text}</b><br>Cluster: %{customdata} (SELECIONADO)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
@@ -1492,7 +1579,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                             z=df_human_used['z'],
                             mode='markers',
                             marker=dict(size=12, color='darkred', symbol='diamond', line=dict(color='black', width=2)),
-                            name='🔴 Humanas (USADAS)',
+                            name='Humanas (USADAS)',
                             text=df_human_used['label'],
                             hovertemplate="<b>%{text} - USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
                         ))
@@ -1506,7 +1593,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                             z=df_human_not_used['z'],
                             mode='markers',
                             marker=dict(size=10, color='orange', symbol='diamond', line=dict(color='darkorange', width=1), opacity=0.5),
-                            name='🟠 Humanas (NÃO USADAS)',
+                            name='Humanas (NAO USADAS)',
                             text=df_human_not_used['label'],
                             hovertemplate="<b>%{text} - NÃO USADA</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>"
                         ))
@@ -1527,7 +1614,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                     best_row = df_generated.loc[best_idx]
                     debug_info.append(f"**Melhor global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}**")
                     
-                    st.info("🔍 DEBUG - Distâncias recalculadas:\n\n" + "\n\n".join(debug_info))
+                    st.info("DEBUG - Distancias recalculadas:\n\n" + "\n\n".join(debug_info))
                     
                     # Plotar ideias normais (exceto a melhor)
                     df_gen_normal = df_generated.drop(best_idx)
@@ -1618,7 +1705,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                 text=[f"{i}" for i in centroid_iters],  # Números nas bolinhas
                                 textposition='top center',
                                 textfont=dict(size=14, color='darkblue', family='Arial Black'),  # Aumentado de 10 para 14
-                                name='🎯 Trajetória (Centroides)',
+                                name='Trajetoria (Centroides)',
                                 hovertemplate="<b>Centroide Iter %{text}</b><br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
                                 showlegend=True
                             ))
@@ -1665,7 +1752,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                         sizeref=0.015,
                                         anchor='tail',
                                         showlegend=True,
-                                        name='➡️ Setas (Centroides)',
+                                        name='Setas (Centroides)',
                                         hoverinfo='skip',
                                         legendgroup='arrows_centroid'
                                     ))
@@ -1701,7 +1788,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                 text=[f"{i}" for i in best_iters],  # Números nos diamantes
                                 textposition='bottom center',
                                 textfont=dict(size=14, color='purple', family='Arial Black'),  # Aumentado de 10 para 14
-                                name='⭐ Trajetória (Melhores)',
+                                name='Trajetoria (Melhores)',
                                 customdata=best_dists,
                                 hovertemplate="<b>Melhor Iter %{text}</b><br>Dist: %{customdata:.4f}<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
                                 showlegend=True
@@ -1749,7 +1836,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                         sizeref=0.015,
                                         anchor='tail',
                                         showlegend=True,
-                                        name='➡️ Setas (Melhores)',
+                                        name='Setas (Melhores)',
                                         hoverinfo='skip',
                                         legendgroup='arrows_best'
                                     ))
@@ -1786,64 +1873,64 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 
                 if use_clustering_viz:
                     st.info(f"""
-                    **📊 Como interpretar o UMAP 3D (COM CLUSTERING):**
+                    **Como interpretar o UMAP 3D (COM CLUSTERING):**
                     
                     **Pontos:**
-                    - **🔴 Diamantes vermelhos grandes**: Cluster {selected_cluster} (SELECIONADO - usado no experimento)
-                    - **⚪ Diamantes coloridos menores**: Outros clusters (disponíveis mas não usados)
-                    - **🔵 Círculos coloridos**: Ideias geradas (cor = iteração)
-                    - **⭐ Diamante dourado**: Melhor ideia global (menor distância)
+                    - Diamantes vermelhos grandes: Cluster {selected_cluster} (SELECIONADO - usado no experimento)
+                    - Diamantes coloridos menores: Outros clusters (disponiveis mas nao usados)
+                    - Circulos coloridos: Ideias geradas (cor = iteracao)
+                    - ⭐ Diamante dourado: Melhor ideia global (menor distancia)
                     
                     **Trajetórias:**
-                    - **🎯 Linha ciano (sólida)**: Centroides de cada iteração (tendência geral do movimento)
-                    - **⭐ Linha magenta (sólida)**: Melhores ideias de cada iteração (elite)
-                    - **➡️ Setas 3D**: Direção do movimento (clique na legenda para habilitar/desabilitar)
+                    - Linha ciano (solida): Centroides de cada iteracao (tendencia geral do movimento)
+                    - Linha magenta (solida): Melhores ideias de cada iteracao (elite)
+                    - Setas 3D: Direcao do movimento (clique na legenda para habilitar/desabilitar)
                     
-                    **💡 O que observar:**
+                    **O que observar:**
                     - Ideias geradas devem convergir para o cluster vermelho (selecionado)
                     - Trajetória ciano mostra se o "centro de massa" está se aproximando das humanas
                     - Trajetória magenta mostra se as top ideias estão melhorando iteração a iteração
                     
-                    ⚠️ **Importante**: UMAP reduz de 3072D (OpenAI) para 3D (~99% de perda de informação).
+                    Importante: UMAP reduz de 3072D (OpenAI) para 3D (~99% de perda de informacao).
                     As distâncias visuais são aproximadas. Use os valores de hover para distâncias reais.
                     """)
                 else:
                     st.info("""
-                    **📊 Como interpretar o UMAP 3D:**
+                    **Como interpretar o UMAP 3D:**
                     
                     **Pontos:**
-                    - **🔴 Diamantes vermelhos**: Ideias humanas (referências usadas)
-                    - **🟠 Diamantes laranja**: Ideias humanas não usadas (contexto)
-                    - **🔵 Círculos coloridos**: Ideias geradas (cor = iteração)
-                    - **⭐ Diamante dourado**: Melhor ideia global (menor distância)
+                    - Diamantes vermelhos: Ideias humanas (referencias usadas)
+                    - Diamantes laranja: Ideias humanas nao usadas (contexto)
+                    - Circulos coloridos: Ideias geradas (cor = iteracao)
+                    - ⭐ Diamante dourado: Melhor ideia global (menor distancia)
                     
                     **Trajetórias:**
-                    - **🎯 Linha ciano (sólida)**: Centroides de cada iteração (tendência geral)
-                    - **⭐ Linha magenta (sólida)**: Melhores ideias de cada iteração (elite)
-                    - **➡️ Setas 3D**: Direção do movimento (clique na legenda para habilitar/desabilitar)
+                    - Linha ciano (solida): Centroides de cada iteracao (tendencia geral)
+                    - Linha magenta (solida): Melhores ideias de cada iteracao (elite)
+                    - Setas 3D: Direcao do movimento (clique na legenda para habilitar/desabilitar)
                     
-                    **💡 O que observar:**
+                    **O que observar:**
                     - Ideias mais próximas dos diamantes vermelhos são mais parecidas com as humanas
                     - Trajetória ciano mostra se o "centro de massa" está convergindo
                     - Trajetória magenta mostra se as top ideias estão melhorando
-                    - Se as linhas se aproximam das humanas = convergência ✅
-                    - Se as linhas se afastam ou zigzagueiam = divergência ❌
+                    - Se as linhas se aproximam das humanas = convergencia
+                    - Se as linhas se afastam ou zigzagueiam = divergencia
                     
-                    ⚠️ **Importante**: UMAP reduz de 3072D (OpenAI) para 3D (~99% de perda de informação).
+                    Importante: UMAP reduz de 3072D (OpenAI) para 3D (~99% de perda de informacao).
                     As distâncias visuais são aproximadas. Use os valores de hover para distâncias reais.
                     """)
                 
             except Exception as e:
-                st.error(f"❌ Erro ao calcular UMAP 3D: {e}")
+                st.error(f"Erro ao calcular UMAP 3D: {e}")
                 import traceback
                 st.code(traceback.format_exc())
     else:
         st.markdown("---")
-        st.warning("📦 UMAP não disponível. Instale com: `pip install umap-learn`")
+        st.warning("UMAP nao disponivel. Instale com: `pip install umap-learn`")
     
     # Tabela de resultados
     st.markdown("---")
-    st.subheader("📋 Tabela de Resultados")
+    st.subheader("Tabela de Resultados")
     
     df = pd.DataFrame([
         {
@@ -1859,7 +1946,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
     st.dataframe(df, use_container_width=True, hide_index=True)
     
     # Detalhes de cada iteracao
-    st.subheader("🔍 Detalhes por Iteracao")
+    st.subheader("Detalhes por Iteracao")
     
     selected_iteration = st.selectbox(
         "Selecione uma iteracao",

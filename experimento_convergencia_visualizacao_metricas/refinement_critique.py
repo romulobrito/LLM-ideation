@@ -60,12 +60,12 @@ CRITICAL: For each pattern, use this format:
    - Output: {{"action": "add", "description": "what to add"}}
 
 EXAMPLES OF GOOD FEEDBACK:
-✅ {{"action": "replace", "from": "Gimmicky concepts centered on objects", "to": "Character-driven stories with emotional depth"}}
-✅ {{"action": "add", "description": "Named characters with specific backstories and occupations"}}
-✅ {{"action": "keep", "description": "Bittersweet endings without forced resolution"}}
+{{"action": "replace", "from": "Gimmicky concepts centered on objects", "to": "Character-driven stories with emotional depth"}}
+{{"action": "add", "description": "Named characters with specific backstories and occupations"}}
+{{"action": "keep", "description": "Bittersweet endings without forced resolution"}}
 
-❌ BAD (too vague): {{"action": "replace", "from": "Bad writing", "to": "Good writing"}}
-❌ BAD (not contrastive): {{"action": "don't", "description": "Don't use gimmicks"}}
+BAD (too vague): {{"action": "replace", "from": "Bad writing", "to": "Good writing"}}
+BAD (not contrastive): {{"action": "don't", "description": "Don't use gimmicks"}}
 
 CRITICAL INSTRUCTIONS:
 - Be ULTRA-SPECIFIC: mention concrete elements (character types, settings, plot devices, tone markers)
@@ -73,7 +73,7 @@ CRITICAL INSTRUCTIONS:
 - Focus on CRAFT ELEMENTS: character development, setting details, emotional arc, pacing, dialogue style
 - Output 5-8 feedback items total
 
-🚨 CRITICAL OUTPUT FORMAT 🚨
+CRITICAL OUTPUT FORMAT
 YOU MUST END YOUR RESPONSE WITH THE JSON ARRAY.
 DO NOT STOP BEFORE GENERATING THE JSON.
 After any analysis or thinking, YOU MUST write:

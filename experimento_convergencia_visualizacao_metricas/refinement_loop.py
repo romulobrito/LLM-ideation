@@ -72,8 +72,8 @@ class RefinementConfig:
     api_key_override: Optional[str] = None
     reasoning_effort: Optional[str] = None
     output_dir: Optional[Path] = None
-    use_north_star: bool = True  # NOVO: Usar norte fixo automatico
-    north_star_model: str = "gpt-4o"  # NOVO: Modelo para gerar norte (mais preciso)
+    use_north_star: bool = True  #  Usar norte fixo automatico
+    north_star_model: str = "gpt-4o"  #  Modelo para gerar norte (mais preciso)
     # Parametros de clustering
     use_clustering: bool = False  # Se True, usa clustering; se False, usa human_ideas diretamente
     all_human_ideas: Optional[List[str]] = None  # TODAS as historias disponiveis (para clustering)
@@ -117,7 +117,7 @@ class RefinementLoop:
         self.converged = False
         self.convergence_reason = ""
         
-        # Informacoes de clustering (NOVO)
+        # Informacoes de clustering 
         self.cluster_labels: Optional[List[int]] = None
         self.clusters_dict: Optional[Dict[int, List[int]]] = None
         self.selected_cluster_id: Optional[int] = None
@@ -180,7 +180,7 @@ class RefinementLoop:
         print("INICIANDO REFINEMENT LOOP")
         print("="*60 + "\n")
         
-        # NOVO: CLUSTERING (se ativado)
+        #  CLUSTERING (se ativado)
         cluster_labels = None
         clusters_dict = None
         cluster_stats = None
@@ -246,7 +246,7 @@ class RefinementLoop:
             # Recomputar embeddings com as novas historias
             self._embed_human_ideas()
             
-            # 6. Salvar informacoes de clustering nas variaveis de instancia (NOVO)
+            # 6. Salvar informacoes de clustering nas variaveis de instancia 
             self.cluster_labels = cluster_labels
             self.clusters_dict = clusters_dict
             self.selected_cluster_id = selected_cluster_id
@@ -257,7 +257,7 @@ class RefinementLoop:
         else:
             print(f"[LOOP] Modo: SEM CLUSTERING (usando {len(self.config.human_ideas)} historias fornecidas)\n")
         
-        # NOVO: Gerar norte fixo UMA VEZ antes do loop
+        #  Gerar norte fixo UMA VEZ antes do loop
         north_star = None
         if self.config.use_north_star:
             print("[LOOP] Modo: NORTE FIXO + Correcoes Taticas")
@@ -281,10 +281,10 @@ class RefinementLoop:
         
         # Ideias iniciais da LLM
         current_llm_ideas = self._generate_initial_ideas()
-        all_generated_ideas = list(current_llm_ideas)  # NOVO: Acumula histórico
+        all_generated_ideas = list(current_llm_ideas)  #  Acumula histórico
         
         no_improvement_count = 0
-        worsening_count = 0  # NOVO: Contador de pioras consecutivas
+        worsening_count = 0  #  Contador de pioras consecutivas
         best_avg_distance = float("inf")
         
         for iteration in range(1, self.config.max_iterations + 1):
@@ -322,14 +322,15 @@ class RefinementLoop:
             print(f"[LOOP] Etapa 2/3: PACKING")
             tactical_bullets = packing_step(
                 critique_json=critique_json,
+                directive=self.config.directive,
                 model=self.config.model,
                 temperature=0.5,
-                max_tokens=1000,
+                max_tokens=2000,
                 api_key_override=self.config.api_key_override,
                 reasoning_effort=self.config.reasoning_effort,
             )
             
-            # NOVO: Combinar norte fixo + bullets taticos
+            #  Combinar norte fixo + bullets taticos
             if self.config.use_north_star and north_star:
                 bullets = format_north_with_tactical(north_star, tactical_bullets)
                 print(f"[LOOP] Usando NORTE FIXO + correções táticas")
@@ -443,7 +444,7 @@ class RefinementLoop:
                     print(f"\n[LOOP] {self.convergence_reason}")
                     break
             
-            # NOVO: Verificacoes de parada por divergencia (se habilitado)
+            #  Verificacoes de parada por divergencia (se habilitado)
             if self.config.enable_divergence_stop and iteration > 1:
                 # 1. Piora excessiva em relacao ao melhor valor
                 if current_metric > best_avg_distance + self.config.divergence_threshold:
@@ -595,13 +596,13 @@ class RefinementLoop:
         ]
         centroid_distance = float(np.mean(centroid_distances))
         
-        # NOVO: Centroid-to-Centroid - distancia entre o centro das ideias LLM e o centro das humanas
+        #  Centroid-to-Centroid - distancia entre o centro das ideias LLM e o centro das humanas
         llm_centroid = llm_embeddings.mean(axis=0)
         llm_centroid = llm_centroid / np.linalg.norm(llm_centroid)  # Normalizar
         
         centroid_to_centroid = float(cosine_distance(llm_centroid, human_centroid))
         
-        # NOVO: Distancia em relacao a iteracao 1 (baseline)
+        #  Distancia em relacao a iteracao 1 (baseline)
         if self.iter1_centroid is None:
             # Esta eh a iteracao 1, salvar o centroide
             self.iter1_centroid = llm_centroid.copy()
@@ -634,8 +635,9 @@ class RefinementLoop:
                 "patience": self.config.patience,
                 "delta_threshold": self.config.delta_threshold,
                 "num_ideas_per_iter": self.config.num_ideas_per_iter,
-                "num_human_ideas": len(self.config.human_ideas),  # NOVO: salvar quantas foram usadas
-                "use_clustering": self.config.use_clustering,  # NOVO: se clustering foi usado
+                "num_human_ideas": len(self.config.human_ideas),  #  salvar quantas foram usadas
+                "use_clustering": self.config.use_clustering,  #  se clustering foi usado
+                "optimize_metric": getattr(self.config, 'optimize_metric', 'avg'),  #  salvar metrica de otimizacao
             },
             "converged": self.converged,
             "convergence_reason": self.convergence_reason,
@@ -654,7 +656,7 @@ class RefinementLoop:
             ]
         }
         
-        # Adicionar informacoes de clustering se foi usado (NOVO)
+        # Adicionar informacoes de clustering se foi usado 
         if self.config.use_clustering and self.cluster_labels is not None:
             summary["clustering"] = {
                 "method": self.config.clustering_method,

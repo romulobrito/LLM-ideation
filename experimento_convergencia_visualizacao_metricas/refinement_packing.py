@@ -21,7 +21,7 @@ from bleu_minimal_deepseek import call_deepseek
 PACKING_PROMPT_TEMPLATE = """You are creating writing directives based on CONTRASTIVE FEEDBACK below.
 
 Original directive:
-"- Center your story around two characters who like each other but don't get a happily ever after."
+"{directive}"
 
 Contrastive Feedback (replace/add/keep actions):
 ------
@@ -50,6 +50,7 @@ Output ONLY the bulleted list (up to 8 bullets total), nothing else:"""
 
 def packing_step(
     critique_json: List[Dict[str, str]],
+    directive: str,
     model: str = "gpt-4o-mini",
     temperature: float = 0.5,
     max_tokens: int = 1000,
@@ -62,6 +63,7 @@ def packing_step(
     Args:
         critique_json: Lista de dicionarios com feedback contrastivo
                       (action: replace/add/keep, from/to/description)
+        directive: Diretiva original do experimento
         model: Modelo LLM a usar (default: gpt-4o-mini)
         temperature: Temperatura para geracao (default: 0.5)
         max_tokens: Maximo de tokens (default: 1000)
@@ -73,7 +75,8 @@ def packing_step(
     
     Example:
         >>> critique = [{"action": "replace", "from": "gimmicks", "to": "character depth"}]
-        >>> result = packing_step(critique)
+        >>> directive = "Center your story around two characters..."
+        >>> result = packing_step(critique, directive)
         >>> print(result)
         "- REPLACE gimmicky concepts WITH character-driven narratives"
     """
@@ -83,7 +86,10 @@ def packing_step(
     json_str = json.dumps(critique_json, indent=2, ensure_ascii=False)
     
     # Montar prompt
-    prompt = PACKING_PROMPT_TEMPLATE.format(json_critique=json_str)
+    prompt = PACKING_PROMPT_TEMPLATE.format(
+        directive=directive,
+        json_critique=json_str
+    )
     
     # Chamar LLM
     print(f"[PACKING] Chamando modelo {model}...")
@@ -196,14 +202,18 @@ if __name__ == "__main__":
         }
     ]
     
+    # Diretiva de exemplo
+    DIRECTIVE = "Center your story around two characters who like each other but don't get a happily ever after."
+    
     print("=== TESTE: refinement_packing.py ===\n")
     print("Input JSON:")
     print(json.dumps(CRITIQUE_JSON, indent=2, ensure_ascii=False))
-    print()
+    print(f"\nDirective: {DIRECTIVE}\n")
     
     try:
         result = packing_step(
             critique_json=CRITIQUE_JSON,
+            directive=DIRECTIVE,
             model="gpt-4o-mini",
             temperature=0.5
         )
