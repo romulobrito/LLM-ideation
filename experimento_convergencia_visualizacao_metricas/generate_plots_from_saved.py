@@ -442,11 +442,31 @@ def generate_umap_plot(exp_data: dict, output_dir: Path) -> None:
     df_generated = df_umap[df_umap['tipo'] == 'gerada']
     
     if len(df_generated) > 0:
-        # Melhor ideia GLOBAL (menor distância individual de todas as ideias)
-        # Isso é independente da métrica de convergência usada no gráfico
-        best_idx = df_generated['distancia'].idxmin()
-        best_row = df_generated.loc[best_idx]
-        print(f"[DEBUG UMAP] Melhor ideia global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}")
+        # IMPORTANTE: Quando EMA está ativo, usar distâncias suavizadas do summary
+        # para ser consistente com o gráfico de convergência
+        use_ema = summary.get('config', {}).get('use_ema', False)
+        
+        if use_ema:
+            # Com EMA: usar min_distance suavizado de cada iteração
+            print(f"[DEBUG UMAP] EMA ativo - usando distâncias suavizadas para consistência com gráfico")
+            iter_summary = {item['iteration']: item['min_distance'] for item in summary['iterations']}
+            
+            # Encontrar melhor iteração (menor min_distance suavizado)
+            best_iter = min(iter_summary, key=iter_summary.get)
+            best_dist_smoothed = iter_summary[best_iter]
+            
+            # Encontrar a melhor ideia dessa iteração
+            best_iter_ideas = df_generated[df_generated['iteracao'] == best_iter]
+            best_idx = best_iter_ideas['distancia'].idxmin()
+            best_row = df_generated.loc[best_idx]
+            
+            print(f"[DEBUG UMAP] Melhor iteração (EMA): Iter {best_iter}, min_dist_suavizado={best_dist_smoothed:.6f}")
+            print(f"[DEBUG UMAP] Melhor ideia global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}")
+        else:
+            # Sem EMA: usar menor distância individual RAW
+            best_idx = df_generated['distancia'].idxmin()
+            best_row = df_generated.loc[best_idx]
+            print(f"[DEBUG UMAP] Melhor ideia global (RAW): Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}")
         
         df_gen_normal = df_generated.drop(best_idx)
         

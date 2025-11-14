@@ -364,17 +364,38 @@ if st.session_state.get('show_saved_exp', False):
                 # DEBUG: Mostrar estatisticas das distancias calculadas
                 df_generated = df_umap[df_umap['tipo'] == 'gerada']
                 if len(df_generated) > 0:
-                    # Melhor ideia GLOBAL (menor distância individual de todas as ideias)
-                    # Isso é independente da métrica de convergência usada no gráfico
-                    best_idx = df_generated['distancia'].idxmin()
-                    best_row = df_generated.loc[best_idx]
-                    print(f"[DEBUG UMAP] Melhor ideia global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}")
+                    # IMPORTANTE: Quando EMA está ativo, usar distâncias suavizadas do summary
+                    # para ser consistente com o gráfico de convergência
+                    use_ema = summary.get('config', {}).get('use_ema', False)
+                    
+                    if use_ema:
+                        # Com EMA: usar min_distance suavizado de cada iteração
+                        print(f"[DEBUG UMAP] EMA ativo - usando distâncias suavizadas para consistência com gráfico")
+                        iter_summary = {item['iteration']: item['min_distance'] for item in summary['iterations']}
+                        
+                        # Encontrar melhor iteração (menor min_distance suavizado)
+                        best_iter = min(iter_summary, key=iter_summary.get)
+                        best_dist_smoothed = iter_summary[best_iter]
+                        
+                        # Encontrar a melhor ideia dessa iteração
+                        best_iter_ideas = df_generated[df_generated['iteracao'] == best_iter]
+                        best_idx = best_iter_ideas['distancia'].idxmin()
+                        best_row = df_generated.loc[best_idx]
+                        
+                        print(f"[DEBUG UMAP] Melhor iteração (EMA): Iter {best_iter}, min_dist_suavizado={best_dist_smoothed:.6f}")
+                        print(f"[DEBUG UMAP] Melhor ideia global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}")
+                    else:
+                        # Sem EMA: usar menor distância individual RAW
+                        best_idx = df_generated['distancia'].idxmin()
+                        best_row = df_generated.loc[best_idx]
+                        print(f"[DEBUG UMAP] Melhor ideia global (RAW): Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}")
                     
                     # Mostrar melhor ideia por iteração para debug
-                    for iter_num in df_generated['iteracao'].unique():
+                    for iter_num in sorted(df_generated['iteracao'].unique()):
                         iter_ideas = df_generated[df_generated['iteracao'] == iter_num]
                         min_dist_iter = iter_ideas['distancia'].min()
-                        print(f"[DEBUG UMAP] Iter {iter_num}: min_dist={min_dist_iter:.6f}")
+                        smoothed_info = f", suavizado={iter_summary[iter_num]:.6f}" if use_ema and iter_num in iter_summary else ""
+                        print(f"[DEBUG UMAP] Iter {iter_num}: min_dist={min_dist_iter:.6f}{smoothed_info}")
                     
                     df_gen_normal = df_generated.drop(best_idx)
                     
@@ -1373,6 +1394,132 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
         st.info("Metrica 'distance_from_iter1' nao disponivel para este experimento (rodado em versao antiga)")
     
     # ============================================================================
+    # GRAFICO: DISTANCIA INICIAL PURAS VS HUMANAS + EVOLUCAO
+    # ============================================================================
+    st.markdown("---")
+    st.subheader("📊 Distancia das Ideias Iniciais PURAS vs Humanas + Evolucao")
+    
+    # Verificar se temos a distancia inicial PURAS vs humanas
+    # Para experimentos salvos: usar summary (se disponivel)
+    # Para experimentos ao vivo: usar loop ou calcular a partir dos results
+    initial_distance_to_humans = None
+    
+    # Tentar usar loop primeiro (experimentos ao vivo)
+    try:
+        if hasattr(loop, 'initial_centroid_to_centroid') and loop.initial_centroid_to_centroid is not None:
+            initial_distance_to_humans = loop.initial_centroid_to_centroid
+    except NameError:
+        pass
+    
+    # Tentar usar summary (experimentos salvos) - so se loop nao funcionou
+    if initial_distance_to_humans is None:
+        try:
+            initial_distance_to_humans = summary.get('initial_distance_to_humans')
+            # Tentar usar initial_metrics se disponivel (nova versao)
+            if initial_distance_to_humans is None:
+                initial_metrics = summary.get('initial_metrics', {})
+                initial_distance_to_humans = initial_metrics.get('centroid_to_centroid')
+        except NameError:
+            pass
+    
+    # Fallback: usar primeira iteracao como aproximacao
+    if initial_distance_to_humans is None and results and len(results) > 0:
+        if hasattr(results[0], 'centroid_to_centroid') and results[0].centroid_to_centroid is not None:
+            initial_distance_to_humans = results[0].centroid_to_centroid
+    
+    if initial_distance_to_humans is not None:
+        # Extrair centroid_to_centroid de cada iteracao
+        c2c_distances = [getattr(r, 'centroid_to_centroid', None) for r in results]
+        c2c_distances = [d for d in c2c_distances if d is not None]
+        
+        if c2c_distances and len(c2c_distances) == len(iterations):
+            fig_initial = go.Figure()
+            
+            # Linha da baseline (distancia inicial PURAS vs humanas)
+            fig_initial.add_hline(
+                y=initial_distance_to_humans,
+                line_dash="dash",
+                line_color="red",
+                line_width=3,
+                annotation_text=f"Baseline: Ideias Iniciais PURAS vs Humanas ({initial_distance_to_humans:.4f})",
+                annotation_position="right",
+                annotation_font_size=12,
+                annotation_font_color="red"
+            )
+            
+            # Linha da evolucao (centroid_to_centroid de cada iteracao)
+            fig_initial.add_trace(go.Scatter(
+                x=iterations,
+                y=c2c_distances,
+                mode="lines+markers",
+                name="Centroid-to-Centroid (Evolucao)",
+                line=dict(color="blue", width=3),
+                marker=dict(size=10, symbol="circle"),
+                fill='tozeroy',
+                fillcolor='rgba(0, 0, 255, 0.1)'
+            ))
+            
+            # Marcar ponto inicial (iteracao 0 = ideias puras)
+            fig_initial.add_trace(go.Scatter(
+                x=[0],
+                y=[initial_distance_to_humans],
+                mode="markers+text",
+                name="Ideias Iniciais PURAS (sem critique)",
+                marker=dict(size=15, symbol="star", color="red"),
+                text=["Baseline PURAS"],
+                textposition="top center",
+                textfont=dict(size=12, color="red")
+            ))
+            
+            fig_initial.update_layout(
+                xaxis_title="Iteracao",
+                yaxis_title="Distancia Coseno (Centroide)",
+                hovermode="x unified",
+                template="plotly_white",
+                height=400,
+                title="Distancia das Ideias Iniciais PURAS vs Humanas + Evolucao",
+                xaxis=dict(range=[-0.5, max(iterations) + 0.5]),
+                annotations=[
+                    dict(
+                        x=0.5, y=1.05,
+                        xref="paper", yref="paper",
+                        text="<b>Interpretacao:</b> Linha vermelha = baseline (ideias PURAS vs humanas) | Linha azul = evolucao ao longo das iteracoes",
+                        showarrow=False,
+                        font=dict(size=10),
+                        xanchor="center"
+                    )
+                ]
+            )
+            
+            st.plotly_chart(fig_initial, use_container_width=True)
+            
+            # Metricas de comparacao
+            final_c2c = c2c_distances[-1] if c2c_distances else None
+            if final_c2c is not None:
+                improvement = initial_distance_to_humans - final_c2c
+                improvement_pct = (improvement / initial_distance_to_humans) * 100 if initial_distance_to_humans > 0 else 0
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Distancia Inicial (PURAS vs Humanas)", f"{initial_distance_to_humans:.4f}")
+                with col2:
+                    st.metric("Distancia Final (Iteracao Final)", f"{final_c2c:.4f}")
+                with col3:
+                    st.metric("Melhoria", f"{improvement:.4f}", delta=f"{improvement_pct:+.1f}%")
+                
+                # Interpretacao
+                if improvement > 0:
+                    st.success(f"Melhoria de {improvement_pct:.1f}%: As ideias geradas estao {improvement:.4f} mais proximas das ideias humanas em relacao ao baseline inicial (PURAS)")
+                elif improvement < -0.05:
+                    st.warning(f"Piora de {abs(improvement_pct):.1f}%: As ideias geradas estao {abs(improvement):.4f} mais distantes das ideias humanas em relacao ao baseline inicial")
+                else:
+                    st.info("Mudanca minima: As ideias geradas mantem distancia similar ao baseline inicial (PURAS)")
+        else:
+            st.info("Metrica 'centroid_to_centroid' nao disponivel para este experimento")
+    else:
+        st.info("Metrica 'initial_distance_to_humans' nao disponivel para este experimento (rodado em versao antiga)")
+    
+    # ============================================================================
     # VISUALIZACAO UMAP 3D
     # ============================================================================
     if UMAP_AVAILABLE:
@@ -1394,7 +1541,6 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 help="Linha conectando a melhor ideia de cada iteração (elite)"
             )
         
-        # As setas agora aparecem na legenda do gráfico e podem ser habilitadas/desabilitadas lá
         show_arrows = True  # Sempre gerar as setas (usuário controla via legenda)
         
         with st.spinner("Calculando UMAP 3D..."):
@@ -1604,17 +1750,46 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 if len(df_generated) > 0:
                     # DEBUG: Mostrar estatisticas das distancias recalculadas
                     debug_info = []
-                    for iter_num in sorted(df_generated['iteracao'].unique()):
-                        iter_ideas = df_generated[df_generated['iteracao'] == iter_num]
-                        min_dist_iter = iter_ideas['distancia'].min()
-                        debug_info.append(f"Iter {iter_num}: min_dist={min_dist_iter:.6f}")
                     
-                    # Encontrar a melhor ideia global (menor distância)
-                    best_idx = df_generated['distancia'].idxmin()
-                    best_row = df_generated.loc[best_idx]
-                    debug_info.append(f"**Melhor global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}**")
+                    # IMPORTANTE: Quando EMA está ativo, usar distâncias suavizadas
+                    # para ser consistente com o gráfico de convergência
+                    use_ema = loop.config.use_ema if hasattr(loop.config, 'use_ema') else False
                     
-                    st.info("DEBUG - Distancias recalculadas:\n\n" + "\n\n".join(debug_info))
+                    if use_ema:
+                        # Com EMA: usar min_distance suavizado de cada iteração
+                        debug_info.append("EMA ATIVO - usando distâncias suavizadas")
+                        iter_smoothed = {r.iteration: r.min_distance for r in results}
+                        
+                        for iter_num in sorted(df_generated['iteracao'].unique()):
+                            iter_ideas = df_generated[df_generated['iteracao'] == iter_num]
+                            min_dist_raw = iter_ideas['distancia'].min()
+                            smoothed = f", suavizado={iter_smoothed[iter_num]:.6f}" if iter_num in iter_smoothed else ""
+                            debug_info.append(f"Iter {iter_num}: min_dist={min_dist_raw:.6f}{smoothed}")
+                        
+                        # Encontrar melhor iteração (menor min_distance suavizado)
+                        best_iter = min(iter_smoothed, key=iter_smoothed.get)
+                        best_dist_smoothed = iter_smoothed[best_iter]
+                        
+                        # Encontrar a melhor ideia dessa iteração
+                        best_iter_ideas = df_generated[df_generated['iteracao'] == best_iter]
+                        best_idx = best_iter_ideas['distancia'].idxmin()
+                        best_row = df_generated.loc[best_idx]
+                        
+                        debug_info.append(f"**Melhor iteração (EMA): Iter {best_iter}, min_suavizado={best_dist_smoothed:.6f}**")
+                        debug_info.append(f"**Melhor ideia global: Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}**")
+                    else:
+                        # Sem EMA: usar menor distância individual RAW
+                        for iter_num in sorted(df_generated['iteracao'].unique()):
+                            iter_ideas = df_generated[df_generated['iteracao'] == iter_num]
+                            min_dist_iter = iter_ideas['distancia'].min()
+                            debug_info.append(f"Iter {iter_num}: min_dist={min_dist_iter:.6f}")
+                        
+                        # Encontrar a melhor ideia global (menor distância RAW)
+                        best_idx = df_generated['distancia'].idxmin()
+                        best_row = df_generated.loc[best_idx]
+                        debug_info.append(f"**Melhor global (RAW): Iter {best_row['iteracao']}, dist={best_row['distancia']:.6f}**")
+                    
+                    st.info("DEBUG - Distancias:\n\n" + "\n\n".join(debug_info))
                     
                     # Plotar ideias normais (exceto a melhor)
                     df_gen_normal = df_generated.drop(best_idx)

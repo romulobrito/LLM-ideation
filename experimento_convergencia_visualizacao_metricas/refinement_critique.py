@@ -104,6 +104,7 @@ def critique_step(
     max_tokens: int = 4000,
     api_key_override: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
+    previous_feedbacks: Optional[List[List[Dict[str, str]]]] = None,
 ) -> List[Dict[str, str]]:
     """
     Etapa CRITIQUE: Compara vibes e retorna JSON com feedback contrastivo.
@@ -118,6 +119,7 @@ def critique_step(
         max_tokens: Maximo de tokens (default: 4000)
         api_key_override: API key alternativa (opcional)
         reasoning_effort: Reasoning effort para modelos que suportam (opcional)
+        previous_feedbacks: Lista de feedbacks anteriores para evitar redundancia (opcional)
     
     Returns:
         Lista de dicionarios com feedback contrastivo:
@@ -138,6 +140,19 @@ def critique_step(
     # Formatar ideias da LLM
     llm_ideas_str = "\n---\n".join(llm_ideas)
     
+    # Preparar contexto de feedback anterior (se houver)
+    previous_context = ""
+    if previous_feedbacks and len(previous_feedbacks) > 0:
+        import json
+        previous_context = "\n\nPREVIOUS FEEDBACK FROM PAST ITERATIONS (DO NOT REPEAT):\n"
+        previous_context += "You have already given the following feedback in previous iterations.\n"
+        previous_context += "DO NOT repeat these points. Focus on NEW patterns or issues not yet addressed:\n------\n"
+        for i, feedback in enumerate(previous_feedbacks[-3:], 1):  # Ultimas 3 iteracoes
+            previous_context += f"Iteration {i}:\n"
+            previous_context += json.dumps(feedback, indent=2, ensure_ascii=False)
+            previous_context += "\n------\n"
+        print(f"[CRITIQUE] Incluindo historico de {len(previous_feedbacks)} iteracoes anteriores")
+    
     # Montar prompt
     prompt = CRITIQUE_PROMPT_TEMPLATE.format(
         invitation=invitation,
@@ -145,6 +160,10 @@ def critique_step(
         human_ideas=human_ideas_str,
         llm_ideas=llm_ideas_str
     )
+    
+    # Adicionar contexto de feedback anterior (se houver)
+    if previous_context:
+        prompt = prompt + previous_context
     
     # Chamar LLM
     print(f"[CRITIQUE] Chamando modelo {model}...")
@@ -192,26 +211,55 @@ def critique_step(
         
         # FALLBACK: Tentar novamente com exclude_reasoning=True (costuma retornar JSON limpo)
         try:
+            # Aumentar max_tokens no retry para garantir resposta completa
+            retry_max_tokens = max(max_tokens, 2000)  # Minimo 2000 tokens para JSON completo
+            print(f"[CRITIQUE] Retry com max_tokens={retry_max_tokens} (original: {max_tokens})")
+            
             response2 = call_deepseek(
                 prompt=prompt,
                 model=model,
-                max_tokens=max_tokens,
+                max_tokens=retry_max_tokens,
                 temperature=temperature,
                 api_key_override=api_key_override,
                 reasoning_effort=reasoning_effort,
                 exclude_reasoning=True,  # Forcar apenas content
             )
+            
+            # Validar se a resposta nao esta vazia ou muito curta
+            if not response2 or len(response2.strip()) < 50:
+                print(f"[CRITIQUE] AVISO: Resposta retry muito curta ou vazia ({len(response2) if response2 else 0} chars)")
+                raise ValueError("Resposta retry muito curta ou vazia")
+            
+            print(f"[CRITIQUE] Resposta retry recebida: {len(response2)} chars")
             json_critique = _parse_json_response(response2)
             print(f"[CRITIQUE] Retry bem-sucedido: {len(json_critique)} vibes detectadas")
             return json_critique
         except Exception as e2:
             print(f"[CRITIQUE] Retry tambem falhou: {e2}")
+            
+            # Salvar respostas para debug
+            import tempfile
+            import os
+            debug_dir = tempfile.gettempdir()
+            
+            response1_path = os.path.join(debug_dir, "critique_response1_failed.txt")
+            with open(response1_path, "w", encoding="utf-8") as f:
+                f.write(response)
+            print(f"[CRITIQUE] Resposta original salva em: {response1_path}")
             print(f"[CRITIQUE] Resposta original (primeiros 500 chars): {response[:500]}...")
             if len(response) > 500:
                 print(f"[CRITIQUE] Resposta original (ultimos 500 chars): ...{response[-500:]}")
+            
             if 'response2' in locals():
+                response2_path = os.path.join(debug_dir, "critique_response2_failed.txt")
+                with open(response2_path, "w", encoding="utf-8") as f:
+                    f.write(response2)
+                print(f"[CRITIQUE] Resposta retry salva em: {response2_path}")
                 print(f"[CRITIQUE] Resposta retry (primeiros 500 chars): {response2[:500]}...")
-            raise ValueError(f"Nao foi possivel parsear JSON da resposta apos 2 tentativas")
+                if len(response2) > 500:
+                    print(f"[CRITIQUE] Resposta retry (ultimos 500 chars): ...{response2[-500:]}")
+            
+            raise ValueError(f"Nao foi possivel parsear JSON da resposta apos 2 tentativas. Verifique os arquivos de debug em {debug_dir}")
 
 
 def _json_sanitize(s: str) -> str:
@@ -433,7 +481,9 @@ def _parse_json_response(response: str) -> List[Dict[str, str]]:
             parsed_objects = []
             for i, obj_str in enumerate(objects):
                 try:
-                    obj = json.loads(obj_str)
+                    # Sanitizar objeto individual
+                    obj_sanitized = _json_sanitize(obj_str)
+                    obj = json.loads(obj_sanitized)
                     if isinstance(obj, dict):
                         # Aceitar se tem action OU vibe_pattern
                         if "action" in obj or "vibe_pattern" in obj:
@@ -441,11 +491,137 @@ def _parse_json_response(response: str) -> List[Dict[str, str]]:
                 except Exception as e:
                     print(f"[CRITIQUE] Tentativa 6, objeto {i+1} falhou: {e}")
                     continue
-            if parsed_objects:
+            if parsed_objects and len(parsed_objects) >= 3:
                 print(f"[CRITIQUE] Tentativa 6: {len(parsed_objects)} objetos parseados com sucesso")
                 return parsed_objects
     except Exception as e:
         print(f"[CRITIQUE] Tentativa 6 falhou completamente: {e}")
+        pass
+    
+    # Tentativa 7: Extrair pattern mais agressivo - procurar por linhas com "action"
+    try:
+        # Procurar linhas que contenham "action": "replace|add|keep"
+        lines = response.split('\n')
+        objects_rebuilt = []
+        current_obj = {}
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Detectar início de novo objeto
+            if '"action"' in line or "'action'" in line:
+                # Salvar objeto anterior se existir
+                if current_obj and ("action" in current_obj):
+                    objects_rebuilt.append(current_obj)
+                current_obj = {}
+                
+                # Extrair action
+                action_match = re.search(r'"action"\s*:\s*"(replace|add|keep)"', line, re.IGNORECASE)
+                if not action_match:
+                    action_match = re.search(r"'action'\s*:\s*'(replace|add|keep)'", line, re.IGNORECASE)
+                if action_match:
+                    current_obj["action"] = action_match.group(1).lower()
+            
+            # Extrair from
+            if '"from"' in line or "'from'" in line:
+                from_match = re.search(r'"from"\s*:\s*"([^"]*)"', line)
+                if not from_match:
+                    from_match = re.search(r"'from'\s*:\s*'([^']*)'", line)
+                if from_match:
+                    current_obj["from"] = from_match.group(1)
+            
+            # Extrair to
+            if '"to"' in line or "'to'" in line:
+                to_match = re.search(r'"to"\s*:\s*"([^"]*)"', line)
+                if not to_match:
+                    to_match = re.search(r"'to'\s*:\s*'([^']*)'", line)
+                if to_match:
+                    current_obj["to"] = to_match.group(1)
+            
+            # Extrair description
+            if '"description"' in line or "'description'" in line:
+                desc_match = re.search(r'"description"\s*:\s*"([^"]*)"', line)
+                if not desc_match:
+                    desc_match = re.search(r"'description'\s*:\s*'([^']*)'", line)
+                if desc_match:
+                    current_obj["description"] = desc_match.group(1)
+        
+        # Salvar último objeto
+        if current_obj and ("action" in current_obj):
+            objects_rebuilt.append(current_obj)
+        
+        if objects_rebuilt and len(objects_rebuilt) >= 3:
+            print(f"[CRITIQUE] Tentativa 7: {len(objects_rebuilt)} objetos reconstruidos linha por linha")
+            return objects_rebuilt
+    except Exception as e:
+        print(f"[CRITIQUE] Tentativa 7 falhou: {e}")
+        pass
+    
+    # Tentativa 8: Tentar recuperar JSON truncado - completar objetos incompletos
+    try:
+        # Se a resposta e muito curta (< 200 chars), pode estar truncada
+        if len(response) < 200:
+            print(f"[CRITIQUE] Resposta muito curta ({len(response)} chars), pode estar truncada")
+            # Tentar extrair objetos JSON mesmo que incompletos
+            objects = re.findall(r'\{"action"\s*:\s*"([^"]+)"[^}]*\}', response)
+            if objects:
+                print(f"[CRITIQUE] Tentativa 8: encontrados {len(objects)} objetos mesmo com truncamento")
+                # Tentar reconstruir objetos minimos
+                rebuilt = []
+                for obj_match in re.finditer(r'\{"action"\s*:\s*"([^"]+)"', response):
+                    obj = {"action": obj_match.group(1)}
+                    # Tentar extrair from/to/description do texto ao redor
+                    start = obj_match.start()
+                    end = min(start + 500, len(response))
+                    context = response[start:end]
+                    from_match = re.search(r'"from"\s*:\s*"([^"]*)"', context)
+                    to_match = re.search(r'"to"\s*:\s*"([^"]*)"', context)
+                    desc_match = re.search(r'"description"\s*:\s*"([^"]*)"', context)
+                    if from_match:
+                        obj["from"] = from_match.group(1)
+                    if to_match:
+                        obj["to"] = to_match.group(1)
+                    if desc_match:
+                        obj["description"] = desc_match.group(1)
+                    rebuilt.append(obj)
+                if rebuilt and len(rebuilt) >= 3:
+                    print(f"[CRITIQUE] Tentativa 8: {len(rebuilt)} objetos reconstruidos de resposta truncada")
+                    return rebuilt
+        
+        # Se a resposta tem um JSON array incompleto (sem fechamento), tentar completar
+        first_bracket = response.find('[')
+        if first_bracket != -1:
+            # Verificar se tem fechamento
+            last_bracket = response.rfind(']')
+            if last_bracket == -1 or last_bracket < first_bracket:
+                # JSON incompleto - tentar extrair objetos individuais
+                json_content = response[first_bracket:]
+                # Tentar extrair objetos JSON completos ou parcialmente completos
+                objects = re.findall(r'\{"action"\s*:\s*"([^"]+)"[^}]*\}', json_content)
+                if objects:
+                    print(f"[CRITIQUE] Tentativa 8: JSON incompleto, extraindo {len(objects)} objetos")
+                    rebuilt = []
+                    for obj_match in re.finditer(r'\{"action"\s*:\s*"([^"]+)"', json_content):
+                        obj = {"action": obj_match.group(1)}
+                        start = obj_match.start()
+                        end = min(start + 300, len(json_content))
+                        obj_str = json_content[start:end]
+                        # Tentar extrair campos
+                        from_match = re.search(r'"from"\s*:\s*"([^"]*)"', obj_str)
+                        to_match = re.search(r'"to"\s*:\s*"([^"]*)"', obj_str)
+                        desc_match = re.search(r'"description"\s*:\s*"([^"]*)"', obj_str)
+                        if from_match:
+                            obj["from"] = from_match.group(1)
+                        if to_match:
+                            obj["to"] = to_match.group(1)
+                        if desc_match:
+                            obj["description"] = desc_match.group(1)
+                        rebuilt.append(obj)
+                    if rebuilt and len(rebuilt) >= 3:
+                        print(f"[CRITIQUE] Tentativa 8: {len(rebuilt)} objetos extraidos de JSON incompleto")
+                        return rebuilt
+    except Exception as e:
+        print(f"[CRITIQUE] Tentativa 8 falhou: {e}")
         pass
     
     # Salvar resposta para debug

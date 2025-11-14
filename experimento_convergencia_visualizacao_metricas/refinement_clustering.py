@@ -276,19 +276,29 @@ def get_best_cluster(
     
     elif criterion == "balanced":
         # Balanco: normalizar tamanho e coesao, maximizar (tamanho / coesao)
+        # Penaliza fortemente clusters muito pequenos (1-2 historias)
         max_size = max(stats["size"] for stats in cluster_stats.values())
         max_cohesion = max(stats["cohesion"] for stats in cluster_stats.values())
         
         scores = {}
         for cluster_id, stats in cluster_stats.items():
-            # Score: tamanho normalizado / coesao normalizada
-            # Maior tamanho e menor coesao = melhor score
+            size = stats["size"]
+            
+            # Penalidade exponencial para clusters pequenos
+            if size == 1:
+                size_penalty = 0.01  # Cluster com 1 historia: penalidade massiva
+            elif size == 2:
+                size_penalty = 0.25  # Cluster com 2 historias: penalidade media
+            else:
+                size_penalty = 1.0   # Cluster com 3+ historias: sem penalidade
+            
+            # Score: (tamanho normalizado * penalidade) / (coesao normalizada + epsilon)
             size_norm = stats["size"] / max_size
-            cohesion_norm = stats["cohesion"] / max_cohesion
-            scores[cluster_id] = size_norm / (cohesion_norm + 0.01)  # +0.01 para evitar divisao por zero
+            cohesion_norm = stats["cohesion"] / max_cohesion if max_cohesion > 0 else 0
+            scores[cluster_id] = (size_norm * size_penalty) / (cohesion_norm + 0.01)
         
         best_id = max(scores.keys(), key=lambda k: scores[k])
-        print(f"[CLUSTERING] Melhor cluster (criterion=balanced): {best_id} (score={scores[best_id]:.2f})")
+        print(f"[CLUSTERING] Melhor cluster (criterion=balanced): {best_id} (tamanho={cluster_stats[best_id]['size']}, score={scores[best_id]:.2f})")
     
     else:
         raise ValueError(f"Criterio {criterion} nao suportado")

@@ -36,11 +36,17 @@ CRITICAL CRAFT REQUIREMENT:
 - Apply the REPLACE, ADD, and KEEP guidance to incorporate these proven craft elements
 - Focus on the SPECIFIC character types, settings, plot structures, and emotional tones indicated
 
-CRITICAL FORMATTING REQUIREMENTS:
+CRITICAL DIVERSITY AND FORMATTING REQUIREMENTS:
 - Generate EXACTLY {num_ideas} separate ideas
 - Number each idea: 1., 2., 3., etc.
 - Each idea should span ~150 words
-- Each idea must be distinct in theme, tone, and concept
+- DIVERSITY: Each idea MUST be distinct in:
+  * Theme (different core concepts and subjects)
+  * Characters (varied types, backgrounds, relationships)
+  * Plot structure (different narrative arcs and conflicts)
+  * Setting (diverse locations, time periods, contexts)
+  * Emotional tone (range from light to dark, hopeful to bittersweet)
+- AVOID generating similar ideas or repeating patterns from previous iterations
 - Separate ideas with a blank line
 
 Example format:
