@@ -96,7 +96,7 @@ def select_cluster_representatives(
     cluster_id: int,
     labels: List[int],
     min_size: Optional[int] = None,
-) -> List[str]:
+) -> Tuple[List[str], List[int], List[int]]:
     """
     Seleciona historias de um cluster especifico.
     
@@ -111,13 +111,18 @@ def select_cluster_representatives(
         min_size: Tamanho minimo do cluster (None = sem expansao)
     
     Returns:
-        Lista de historias do cluster selecionado (expandido se necessario)
+        Tupla com:
+        - Lista de historias do cluster selecionado (expandido se necessario)
+        - Lista de indices originais do cluster (antes da expansao)
+        - Lista de indices expandidos (adicionados por proximidade, vazio se nao expandiu)
     
     Example:
         >>> labels, clusters = cluster_human_ideas(ideas, embedder, n_clusters=3)
-        >>> cluster_0_ideas = select_cluster_representatives(ideas, embedder, cluster_id=0, labels=labels, min_size=5)
-        >>> print(len(cluster_0_ideas))
-        5  # Expandido para 5 historias (se originalmente tinha < 5)
+        >>> cluster_ideas, orig_idx, exp_idx = select_cluster_representatives(
+        ...     ideas, embedder, cluster_id=0, labels=labels, min_size=5
+        ... )
+        >>> print(len(cluster_ideas), len(orig_idx), len(exp_idx))
+        5, 3, 2  # 5 ideias totais: 3 originais + 2 expandidas
     """
     # Filtrar historias do cluster
     cluster_indices = [i for i, label in enumerate(labels) if label == cluster_id]
@@ -125,6 +130,10 @@ def select_cluster_representatives(
     
     original_size = len(selected_ideas)
     print(f"[CLUSTERING] Cluster {cluster_id}: {original_size} historias")
+    
+    # Indices originais e expandidos
+    original_indices = list(cluster_indices)  # Copia dos indices originais
+    expanded_indices = []  # Inicialmente vazio
     
     # Se min_size especificado e cluster pequeno, expandir
     if min_size and original_size < min_size:
@@ -148,18 +157,18 @@ def select_cluster_representatives(
         distances_to_centroid.sort(key=lambda x: x[1])
         
         # Pegar as min_size historias mais proximas (incluindo as ja no cluster)
-        expanded_indices = [idx for idx, _ in distances_to_centroid[:min_size]]
+        all_selected_indices = [idx for idx, _ in distances_to_centroid[:min_size]]
         
         # Atualizar lista de historias
-        selected_ideas = [human_ideas[i] for i in expanded_indices]
+        selected_ideas = [human_ideas[i] for i in all_selected_indices]
         
-        # Mostrar quais foram adicionadas
-        added_indices = [i for i in expanded_indices if i not in cluster_indices]
-        if added_indices:
-            print(f"[CLUSTERING] Adicionadas {len(added_indices)} historias vizinhas: indices {added_indices}")
+        # Identificar quais foram adicionadas (expandidas)
+        expanded_indices = [i for i in all_selected_indices if i not in cluster_indices]
+        if expanded_indices:
+            print(f"[CLUSTERING] Adicionadas {len(expanded_indices)} historias vizinhas: indices {expanded_indices}")
             print(f"[CLUSTERING] Cluster expandido: {original_size} -> {len(selected_ideas)} historias")
     
-    return selected_ideas
+    return selected_ideas, original_indices, expanded_indices
 
 
 def analyze_cluster_diversity(

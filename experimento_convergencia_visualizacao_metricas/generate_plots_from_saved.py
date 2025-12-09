@@ -285,6 +285,8 @@ def generate_umap_plot(exp_data: dict, output_dir: Path) -> None:
     use_clustering_viz = clustering_info is not None
     cluster_labels = clustering_info.get("cluster_labels", []) if clustering_info else []
     selected_cluster = clustering_info.get("selected_cluster_id", None) if clustering_info else None
+    original_cluster_indices = clustering_info.get("original_cluster_indices", []) if clustering_info else []
+    expanded_cluster_indices = clustering_info.get("expanded_cluster_indices", []) if clustering_info else []
     
     # Adicionar ideias humanas (se disponiveis)
     if human_embeddings_all is not None and len(human_embeddings_all) > 0:
@@ -296,8 +298,11 @@ def generate_umap_plot(exp_data: dict, output_dir: Path) -> None:
             all_cluster_ids.append(cluster_id)
             
             if use_clustering_viz:
-                if cluster_id == selected_cluster:
-                    all_types.append("humana_cluster_selecionado")
+                # Diferenciar entre original, expandido e outros clusters
+                if i in original_cluster_indices:
+                    all_types.append("humana_cluster_original")
+                elif i in expanded_cluster_indices:
+                    all_types.append("humana_cluster_expandido")
                 elif cluster_id >= 0:
                     all_types.append("humana_outro_cluster")
                 else:
@@ -379,17 +384,30 @@ def generate_umap_plot(exp_data: dict, output_dir: Path) -> None:
     
     # Ideias humanas
     if use_clustering_viz:
-        # Cluster selecionado
-        df_cluster_selected = df_umap[df_umap['tipo'] == 'humana_cluster_selecionado']
-        if len(df_cluster_selected) > 0:
+        # Cluster ORIGINAL (ideias que pertenciam originalmente ao cluster)
+        df_cluster_original = df_umap[df_umap['tipo'] == 'humana_cluster_original']
+        if len(df_cluster_original) > 0:
             fig_umap.add_trace(go.Scatter3d(
-                x=df_cluster_selected['x'], y=df_cluster_selected['y'], z=df_cluster_selected['z'],
+                x=df_cluster_original['x'], y=df_cluster_original['y'], z=df_cluster_original['z'],
                 mode='markers',
                 marker=dict(size=14, color='darkred', symbol='diamond', line=dict(color='black', width=3)),
-                name=f'Cluster {selected_cluster} (SELECIONADO)',
-                text=df_cluster_selected['label'],
-                hovertemplate="<b>%{text}</b><br>Cluster: %{customdata} (SELECIONADO)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
-                customdata=df_cluster_selected['cluster_id']
+                name=f'Cluster {selected_cluster} (ORIGINAL)',
+                text=df_cluster_original['label'],
+                hovertemplate="<b>%{text}</b><br>Cluster (ORIGINAL)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
+                customdata=df_cluster_original['cluster_id']
+            ))
+        
+        # Cluster EXPANDIDO (ideias adicionadas por proximidade ao centroide)
+        df_cluster_expanded = df_umap[df_umap['tipo'] == 'humana_cluster_expandido']
+        if len(df_cluster_expanded) > 0:
+            fig_umap.add_trace(go.Scatter3d(
+                x=df_cluster_expanded['x'], y=df_cluster_expanded['y'], z=df_cluster_expanded['z'],
+                mode='markers',
+                marker=dict(size=12, color='darkorange', symbol='diamond', line=dict(color='red', width=2)),
+                name=f'Cluster {selected_cluster} (EXPANDIDO)',
+                text=df_cluster_expanded['label'],
+                hovertemplate="<b>%{text}</b><br>EXPANDIDO (vizinho adicionado)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
+                customdata=df_cluster_expanded['cluster_id']
             ))
         
         # Outros clusters

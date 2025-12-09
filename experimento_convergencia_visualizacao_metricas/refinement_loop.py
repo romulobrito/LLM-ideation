@@ -139,6 +139,8 @@ class RefinementLoop:
         self.clusters_dict: Optional[Dict[int, List[int]]] = None
         self.selected_cluster_id: Optional[int] = None
         self.all_human_ideas: Optional[List[str]] = None  # Todas historias antes de clustering
+        self.original_cluster_indices: Optional[List[int]] = None  # Indices originais do cluster selecionado
+        self.expanded_cluster_indices: Optional[List[int]] = None  # Indices expandidos (adicionados por proximidade)
         self.iter1_centroid: Optional[np.ndarray] = None  # Centroide da iteracao 1 (baseline)
         self.initial_centroid: Optional[np.ndarray] = None  # Centroide das ideias iniciais PURAS (sem critique)
         self.initial_distance_to_humans: Optional[float] = None  # Distancia das ideias iniciais PURAS em relacao as humanas (centroid_to_centroid, para compatibilidade)
@@ -274,7 +276,7 @@ class RefinementLoop:
                 print(f"[LOOP] Usando cluster pre-selecionado: {selected_cluster_id}")
             
             # 4. Extrair historias do cluster (com expansao se necessario)
-            cluster_ideas = select_cluster_representatives(
+            cluster_ideas, original_indices, expanded_indices = select_cluster_representatives(
                 human_ideas=self.config.all_human_ideas,
                 embedder=self.embedder,
                 cluster_id=selected_cluster_id,
@@ -293,6 +295,8 @@ class RefinementLoop:
             self.cluster_labels = cluster_labels
             self.clusters_dict = clusters_dict
             self.selected_cluster_id = selected_cluster_id
+            self.original_cluster_indices = original_indices  # Indices originais do cluster
+            self.expanded_cluster_indices = expanded_indices  # Indices expandidos (vizinhos adicionados)
             
             print("="*60)
             print(f"[LOOP] CLUSTERING COMPLETO: Usando {len(cluster_ideas)} historias do cluster {selected_cluster_id}")
@@ -1300,6 +1304,9 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
                     for cluster_id, indices in self.clusters_dict.items()
                 },
                 "total_human_ideas_available": len(self.all_human_ideas) if self.all_human_ideas else 0,
+                # Indices originais e expandidos do cluster selecionado
+                "original_cluster_indices": self.original_cluster_indices if self.original_cluster_indices else [],
+                "expanded_cluster_indices": self.expanded_cluster_indices if self.expanded_cluster_indices else [],
             }
         
         # Adicionar informacoes do norte fixo
@@ -1702,6 +1709,10 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
                     
                     human_embeddings_all = embed_texts(self.embedder, all_human_ideas)
                     
+                    # Obter indices originais e expandidos do cluster
+                    original_indices = getattr(self, 'original_cluster_indices', []) or []
+                    expanded_indices = getattr(self, 'expanded_cluster_indices', []) or []
+                    
                     # Adicionar ideias humanas
                     if human_embeddings_all:
                         for i, emb in enumerate(human_embeddings_all):
@@ -1712,8 +1723,11 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
                             all_cluster_ids.append(cluster_id)
                             
                             if use_clustering_viz:
-                                if cluster_id == selected_cluster:
-                                    all_types.append("humana_cluster_selecionado")
+                                # Diferenciar entre original, expandido e outros clusters
+                                if i in original_indices:
+                                    all_types.append("humana_cluster_original")
+                                elif i in expanded_indices:
+                                    all_types.append("humana_cluster_expandido")
                                 elif cluster_id >= 0:
                                     all_types.append("humana_outro_cluster")
                                 else:
@@ -1779,17 +1793,30 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
                         
                         # Ideias humanas
                         if use_clustering_viz:
-                            # Cluster selecionado
-                            df_cluster_selected = df_umap[df_umap['tipo'] == 'humana_cluster_selecionado']
-                            if len(df_cluster_selected) > 0:
+                            # Cluster ORIGINAL (ideias que pertenciam originalmente ao cluster)
+                            df_cluster_original = df_umap[df_umap['tipo'] == 'humana_cluster_original']
+                            if len(df_cluster_original) > 0:
                                 fig_umap.add_trace(go.Scatter3d(
-                                    x=df_cluster_selected['x'], y=df_cluster_selected['y'], z=df_cluster_selected['z'],
+                                    x=df_cluster_original['x'], y=df_cluster_original['y'], z=df_cluster_original['z'],
                                     mode='markers',
                                     marker=dict(size=14, color='darkred', symbol='diamond', line=dict(color='black', width=3)),
-                                    name=f'Cluster {selected_cluster} (SELECIONADO)',
-                                    text=df_cluster_selected['label'],
-                                    hovertemplate="<b>%{text}</b><br>Cluster: %{customdata} (SELECIONADO)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
-                                    customdata=df_cluster_selected['cluster_id']
+                                    name=f'Cluster {selected_cluster} (ORIGINAL)',
+                                    text=df_cluster_original['label'],
+                                    hovertemplate="<b>%{text}</b><br>Cluster: %{customdata} (ORIGINAL)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
+                                    customdata=df_cluster_original['cluster_id']
+                                ))
+                            
+                            # Cluster EXPANDIDO (ideias adicionadas por proximidade ao centroide)
+                            df_cluster_expanded = df_umap[df_umap['tipo'] == 'humana_cluster_expandido']
+                            if len(df_cluster_expanded) > 0:
+                                fig_umap.add_trace(go.Scatter3d(
+                                    x=df_cluster_expanded['x'], y=df_cluster_expanded['y'], z=df_cluster_expanded['z'],
+                                    mode='markers',
+                                    marker=dict(size=12, color='darkorange', symbol='diamond', line=dict(color='red', width=2)),
+                                    name=f'Cluster {selected_cluster} (EXPANDIDO)',
+                                    text=df_cluster_expanded['label'],
+                                    hovertemplate="<b>%{text}</b><br>EXPANDIDO (vizinho adicionado)<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
+                                    customdata=df_cluster_expanded['cluster_id']
                                 ))
                             
                             # Outros clusters
