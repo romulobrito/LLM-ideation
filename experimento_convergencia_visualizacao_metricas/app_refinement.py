@@ -119,7 +119,7 @@ if st.session_state.get('show_saved_exp', False):
         st.metric("Melhor Dist. Mínima", f"{summary['best_min_distance']:.4f}")
     
     # Gráfico de convergência
-    st.subheader("Grafico de Convergencia")
+    st.subheader("Gráfico de Convergência")
     
     iterations = [item["iteration"] for item in summary["iterations"]]
     avg_distances = [item["avg_distance"] for item in summary["iterations"]]
@@ -144,9 +144,87 @@ if st.session_state.get('show_saved_exp', False):
     )
     st.plotly_chart(fig_conv, use_container_width=True)
     
+    # Grafico de Separabilidade
+    separability_scores = [item.get("separability_score") for item in summary["iterations"]]
+    separability_scores = [s for s in separability_scores if s is not None]
+    
+    if separability_scores and len(separability_scores) == len(iterations):
+        st.subheader("Gráfico de Separabilidade")
+        
+        fig_sep = go.Figure()
+        
+        # Linha de referencia em 0.5 (indistinguivel)
+        fig_sep.add_hline(
+            y=0.5,
+            line_dash="dash",
+            line_color="green",
+            line_width=2,
+            annotation_text="Indistinguivel (AUC=0.5)",
+            annotation_position="top right",
+            annotation_font_size=10,
+            annotation_font_color="green",
+            annotation_x=0.98,
+            annotation_y=0.5
+        )
+        
+        # Linha da evolucao de separabilidade
+        fig_sep.add_trace(go.Scatter(
+            x=iterations,
+            y=separability_scores,
+            mode='lines+markers',
+            name='Separabilidade (|AUC - 0.5|)',
+            line=dict(color='purple', width=3),
+            marker=dict(size=10, symbol='diamond')
+        ))
+        
+        # Marcar baseline inicial se disponivel
+        initial_sep = summary.get("initial_metrics", {}).get("separability")
+        if initial_sep is not None:
+            fig_sep.add_trace(go.Scatter(
+                x=[0],
+                y=[initial_sep],
+                mode='markers+text',
+                name='Baseline (PURAS)',
+                marker=dict(size=15, symbol='star', color='red'),
+                text=['Baseline PURAS'],
+                textposition='top center'
+            ))
+            # Ajustar posicao da anotacao da baseline para evitar sobreposicao
+            baseline_y_pos = 0.05 if initial_sep < 0.3 else 0.15
+            fig_sep.add_hline(
+                y=initial_sep,
+                line_dash="dot",
+                line_color="red",
+                line_width=2,
+                annotation_text=f"Baseline ({initial_sep:.4f})",
+                annotation_position="bottom left",
+                annotation_font_size=10,
+                annotation_font_color="red",
+                annotation_x=0.02,
+                annotation_y=baseline_y_pos
+            )
+        
+        fig_sep.update_layout(
+            xaxis_title="Iteração",
+            yaxis_title="Separabilidade (|AUC - 0.5|)",
+            hovermode='x unified',
+            height=400,
+            title="Evolução da Separabilidade: Quanto Menor, Melhor (0.0 = Indistinguível, 0.5 = Muito Separável)",
+            legend=dict(
+                x=1.02,
+                y=1.0,
+                xanchor="left",
+                yanchor="top",
+                bgcolor="rgba(255, 255, 255, 0.8)",
+                bordercolor="black",
+                borderwidth=1
+            )
+        )
+        st.plotly_chart(fig_sep, use_container_width=True)
+    
     # UMAP 3D
     if UMAP_AVAILABLE:
-        st.subheader("Visualizacao UMAP 3D")
+        st.subheader("Visualização UMAP 3D")
         
         try:
             from experiment_iterativo import get_embedder, embed_texts, load_references_from_fs, cosine_distance
@@ -479,7 +557,7 @@ if st.session_state.get('show_saved_exp', False):
                                 text=[f"{i}" for i in best_iters],  # Números nos diamantes
                                 textposition='bottom center',
                                 textfont=dict(size=14, color='purple', family='Arial Black'),
-                                name='Trajetoria (Melhores)',
+                                name='Trajetória (Melhores)',
                                 customdata=best_dists,
                                 hovertemplate="<b>Melhor Iter %{text}</b><br>Dist: %{customdata:.4f}<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
                                 showlegend=True
@@ -494,7 +572,7 @@ if st.session_state.get('show_saved_exp', False):
                 st.plotly_chart(fig_umap, use_container_width=True)
                 
         except Exception as e:
-            st.error(f"Erro ao gerar visualizacoes: {e}")
+            st.error(f"Erro ao gerar visualizações: {e}")
             import traceback
             st.code(traceback.format_exc())
     
@@ -512,7 +590,7 @@ if st.session_state.get('show_saved_exp', False):
     st.dataframe(df_results, use_container_width=True, hide_index=True)
     
     # Botão para voltar
-    if st.button("Voltar para Configuracao", type="primary"):
+    if st.button("Voltar para Configuração", type="primary"):
         st.session_state['show_saved_exp'] = False
         st.rerun()
     
@@ -541,7 +619,7 @@ if st.session_state.get('show_saved_exp', False):
 
 
 # Sidebar: Configuracoes
-st.sidebar.header("Configuracao")
+st.sidebar.header("Configuração")
 
 # Modelo LLM com provedor
 st.sidebar.subheader("Modelo LLM")
@@ -619,8 +697,8 @@ st.sidebar.subheader("Modelo de Embeddings")
 embedder_name = st.sidebar.selectbox(
     "Modelo:",
     [
+        "text-embedding-3-large",  
         "all-MiniLM-L6-v2",
-        "text-embedding-3-large",
         "text-embedding-3-small",
         "all-mpnet-base-v2",
         "paraphrase-multilingual-MiniLM-L12-v2"
@@ -678,14 +756,14 @@ device = st.sidebar.selectbox(
 )
 
 # Parametros de convergencia
-st.sidebar.subheader("Convergencia")
+st.sidebar.subheader("Convergência")
 
 max_iterations = st.sidebar.slider(
     "Max Iteracoes",
     min_value=1,
     max_value=20,
     value=5,
-    help="Numero maximo de iteracoes"
+    help="Número máximo de iterações"
 )
 
 patience = st.sidebar.slider(
@@ -693,7 +771,7 @@ patience = st.sidebar.slider(
     min_value=1,
     max_value=10,
     value=5,  # AJUSTADO: 3 -> 5 (mais tolerante apos correcoes)
-    help="Numero de iteracoes sem melhoria antes de parar"
+    help="Número de iterações sem melhoria antes de parar"
 )
 
 delta_threshold = st.sidebar.number_input(
@@ -703,29 +781,30 @@ delta_threshold = st.sidebar.number_input(
     value=0.005,  # AJUSTADO: 0.01 -> 0.005 (Fase 1)
     step=0.001,
     format="%.3f",
-    help="Melhoria minima para considerar progresso. Recomendado: 0.005"
+    help="Melhoria mínima para considerar progresso. Recomendado: 0.005"
 )
 
 # NOVO: Metrica de otimizacao (Fase 1)
 optimize_metric = st.sidebar.selectbox(
-    "Metrica de Otimizacao",
-    ["top3_mean", "centroid_to_centroid", "avg", "min", "centroid"],
+    "Métrica de Otimização",
+    ["top3_mean", "centroid_to_centroid", "avg", "min", "centroid", "separability"],
     index=0,
-    help="""Metrica usada para convergencia:
-- top3_mean: media das 3 melhores (RECOMENDADO)
-- centroid_to_centroid: dist. entre centroides (MAIS ESTAVEL)
-- avg: distancia media
-- min: menor distancia (ruidosa)
-- centroid: dist. media ao centroide humano"""
+    help="""Métrica usada para convergência:
+- top3_mean: média das 3 melhores (RECOMENDADO)
+- centroid_to_centroid: dist. entre centroides (MAIS ESTÁVEL)
+- avg: distância média
+- min: menor distância (ruidosa)
+- centroid: dist. média ao centroide humano
+- separability: separabilidade (|AUC - 0.5|), quanto menor melhor (0.0 = indistinguível, 0.5 = muito separável)"""
 )
 
 # NOVO: Parada por divergencia (Fase 1)
-st.sidebar.subheader("Parada por Divergencia")
+st.sidebar.subheader("Parada por Divergência")
 
 enable_divergence_stop = st.sidebar.checkbox(
     "Habilitar Parada por Divergencia",
     value=True,
-    help="Para o loop se detectar piora/divergencia significativa"
+    help="Para o loop se detectar piora/divergência significativa"
 )
 
 if enable_divergence_stop:
@@ -736,7 +815,7 @@ if enable_divergence_stop:
         value=0.08,  # AJUSTADO: 0.05 -> 0.08 (mais tolerante apos correcoes)
         step=0.01,
         format="%.2f",
-        help="Piora maxima tolerada em relacao ao melhor valor. Ex: 0.08 = 8% de piora"
+        help="Piora máxima tolerada em relação ao melhor valor. Ex: 0.08 = 8% de piora"
     )
     
     max_consecutive_worsening = st.sidebar.slider(
@@ -744,32 +823,101 @@ if enable_divergence_stop:
         min_value=1,
         max_value=5,
         value=3,  # AJUSTADO: 2 -> 3 (mais tolerante apos correcoes)
-        help="Numero maximo de iteracoes consecutivas piorando antes de parar"
+        help="Número máximo de iterações consecutivas piorando antes de parar"
     )
     
     max_distance_from_start = st.sidebar.number_input(
-        "Max Distancia da Iter 1",
+        "Max Distância da Iter 1",
         min_value=0.1,
         max_value=0.5,
         value=0.30,
         step=0.05,
         format="%.2f",
-        help="Distancia maxima tolerada da iteracao inicial (afastamento excessivo)"
+        help="Distância máxima tolerada da iteração inicial (afastamento excessivo)"
     )
 else:
     divergence_threshold = 0.05
     max_consecutive_worsening = 2
     max_distance_from_start = 0.30
 
+# Parametros de consolidacao semantica (Fase 1)
+st.sidebar.subheader("Consolidação Semântica")
+
+enable_consolidation = st.sidebar.checkbox(
+    "Habilitar Consolidação de Ideias",
+    value=False,
+    help="Agrupa ideias similares e consolida-as usando LLM antes do critique (reduz redundância)"
+)
+
+if enable_consolidation:
+    consolidation_threshold = st.sidebar.slider(
+        "Limiar de Similaridade",
+        min_value=0.60,
+        max_value=0.95,
+        value=0.60,
+        step=0.05,
+        format="%.2f",
+        help="Threshold de similaridade para agrupar ideias (0.60 = 60% similar, mais agressivo)"
+    )
+    
+    consolidation_max_group_size = st.sidebar.slider(
+        "Tamanho Máximo de Grupo",
+        min_value=2,
+        max_value=6,
+        value=4,
+        help="Número máximo de ideias a consolidar em um único grupo"
+    )
+    
+    consolidation_model = st.sidebar.selectbox(
+        "Modelo de Consolidação",
+        [
+            "gpt-4o-mini",
+            "gpt-4o",
+            "deepseek/deepseek-v3.2-exp",
+            "deepseek/deepseek-chat",
+            "o1-mini"
+        ],
+        index=0,
+        help="Modelo LLM para consolidar ideias similares"
+    )
+    
+    # Aviso para DeepSeek v3.2-exp 
+    if consolidation_model == "deepseek/deepseek-v3.2-exp":
+        st.sidebar.warning("""
+        EXPERIMENTAL: DeepSeek V3.2-Exp
+        
+        ATENCAO: Pode falhar com prompts grandes!
+        
+        Problemas conhecidos:
+        - Rate limit mais restritivo
+        - Timeout em prompts longos
+        
+        **RECOMENDAÇÃO**: Use `deepseek-chat` ou `gpt-4o-mini` para estabilidade.
+        """)
+    
+    consolidation_temperature = st.sidebar.slider(
+        "Temperatura de Consolidação",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.3,
+        step=0.1,
+        help="Temperatura para consolidação (mais baixo = mais conservador)"
+    )
+else:
+    consolidation_threshold = 0.60
+    consolidation_max_group_size = 4
+    consolidation_model = "gpt-4o-mini"
+    consolidation_temperature = 0.3
+
 # Parametros de geracao
-st.sidebar.subheader("Geracao")
+st.sidebar.subheader("Geração")
 
 num_ideas_per_iter = st.sidebar.slider(
-    "Ideias por Iteracao",
+    "Ideias por Iteração",
     min_value=1,
     max_value=20,
     value=10,  # AJUSTADO: 5 -> 10 (Fase 1: mais exploracao)
-    help="Numero de ideias a gerar em cada iteracao. Recomendado: 10 (mais exploracao)"
+    help="Número de ideias a gerar em cada iteração. Recomendado: 10 (mais exploração)"
 )
 
 temperature = st.sidebar.slider(
@@ -778,7 +926,7 @@ temperature = st.sidebar.slider(
     max_value=2.0,
     value=0.3,  # AJUSTADO: 0.5 -> 0.3 (mais focado apos correcoes)
     step=0.1,
-    help="Temperatura para geracao de ideias. RECOMENDADO: 0.3-0.5 para convergência estável"
+    help="Temperatura para geração de ideias. RECOMENDADO: 0.3-0.5 para convergência estável"
 )
 
 if temperature > 0.7:
@@ -797,7 +945,7 @@ reasoning_effort = st.sidebar.selectbox(
     "Reasoning Effort",
     ["None", "minimal", "low", "medium", "high"],
     index=0,
-    help="Nivel de reasoning para modelos que suportam (ex: GPT-5). Use 'minimal' para GPT-5 com JSON estruturado."
+    help="Nível de reasoning para modelos que suportam (ex: GPT-5). Use 'minimal' para GPT-5 com JSON estruturado."
 )
 
 # NOVO: Norte Fixo
@@ -806,7 +954,7 @@ st.sidebar.subheader("Norte Fixo (Experimental)")
 use_north_star = st.sidebar.checkbox(
     "Usar Norte Fixo Automático",
     value=True,
-    help="Gera diretrizes FIXAS analisando ideias humanas (reduz oscilacao do feedback)"
+    help="Gera diretrizes FIXAS analisando ideias humanas (reduz oscilação do feedback)"
 )
 
 if use_north_star:
@@ -829,14 +977,14 @@ else:
     st.sidebar.warning("Feedback 100% dinamico (pode oscilar)")
 
 # Diretorio de saida
-st.sidebar.subheader("Saida")
+st.sidebar.subheader("Saída")
 
 default_output_dir = str(Path.home() / "Documentos" / "MAI-DAI-USP" / "experimento_convergencia_visualizacao_metricas" / "exp_refinement")
 
 output_dir = st.sidebar.text_input(
     "Diretorio de Saida",
     value=default_output_dir,
-    help="Diretorio para salvar resultados"
+    help="Diretório para salvar resultados"
 )
 
 st.sidebar.markdown("---")
@@ -866,7 +1014,7 @@ with col2:
         "Directive",
         value="Center your story around two characters who like each other but don't get a happily ever after.",
         height=100,
-        help="Diretiva original para geracao de ideias"
+        help="Diretiva original para geração de ideias"
     )
     
     st.subheader("Ideias Humanas")
@@ -990,12 +1138,12 @@ if use_clustering:
             )
         else:
             distance_threshold = st.slider(
-                "Threshold de Distancia",
+                "Threshold de Distância",
                 min_value=0.1,
                 max_value=0.5,
                 value=0.3,
                 step=0.05,
-                help="Distancia maxima para historias no mesmo cluster (menor = clusters mais coesos)"
+                help="Distância máxima para histórias no mesmo cluster (menor = clusters mais coesos)"
             )
     
     # NOVO: Tamanho minimo do cluster (Fase 1)
@@ -1009,7 +1157,7 @@ if use_clustering:
     
     # Selecao do cluster
     cluster_selection_method = st.radio(
-        "Selecao do Cluster",
+        "Seleção do Cluster",
         ["Automatica (maior cluster)", "Manual (escolher depois)"],
         index=0,
         help="""
@@ -1053,7 +1201,7 @@ if use_clustering:
 st.markdown("---")
 
 # Validacao de chaves de API
-st.header("Status de Configuracao")
+st.header("Status de Configuração")
 
 col_status1, col_status2 = st.columns(2)
 
@@ -1180,14 +1328,20 @@ if run_button:
         n_clusters=n_clusters,
         distance_threshold=distance_threshold,
         selected_cluster_id=selected_cluster_id,
-        min_cluster_size=min_cluster_size if use_clustering else 5,  # NOVO (Fase 1)
-        # Parametros de otimizacao (NOVO - Fase 1)
+        min_cluster_size=min_cluster_size if use_clustering else 5, 
+        # Parametros de otimizacao 
         optimize_metric=optimize_metric,
-        # Parametros de parada por divergencia (NOVO - Fase 1)
+        # Parametros de parada por divergencia (Fase 1)
         enable_divergence_stop=enable_divergence_stop,
         divergence_threshold=divergence_threshold,
         max_consecutive_worsening=max_consecutive_worsening,
         max_distance_from_start=max_distance_from_start,
+        # Parametros de consolidacao semantica (Fase 1)
+        enable_consolidation=enable_consolidation,
+        consolidation_threshold=consolidation_threshold,
+        consolidation_max_group_size=consolidation_max_group_size,
+        consolidation_model=consolidation_model,
+        consolidation_temperature=consolidation_temperature,
     )
     
     # Marcar como rodando
@@ -1251,15 +1405,15 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Total de Iteracoes", len(results))
+        st.metric("Total de Iterações", len(results))
     
     with col2:
         best_avg = min(r.avg_distance for r in results)
-        st.metric("Melhor Distancia Media", f"{best_avg:.4f}")
+        st.metric("Melhor Distância Média", f"{best_avg:.4f}")
     
     with col3:
         best_min = min(r.min_distance for r in results)
-        st.metric("Melhor Distancia Minima", f"{best_min:.4f}")
+        st.metric("Melhor Distância Mínima", f"{best_min:.4f}")
     
     with col4:
         convergence_status = "Sim" if loop.converged else "Nao"
@@ -1268,7 +1422,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
     st.info(f"**Razao:** {loop.convergence_reason}")
     
     # Grafico de convergencia (MULTIPLAS METRICAS - Fase 1)
-    st.subheader("Grafico de Convergencia")
+    st.subheader("Gráfico de Convergência")
     
     iterations = [r.iteration for r in results]
     avg_distances = [r.avg_distance for r in results]
@@ -1290,7 +1444,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
         x=iterations,
         y=avg_distances,
         mode="lines+markers",
-        name="Media (avg)",
+        name="Média (avg)",
         line=dict(color="blue", width=2, dash="dot"),
         marker=dict(size=6)
     ))
@@ -1299,7 +1453,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
         x=iterations,
         y=min_distances,
         mode="lines+markers",
-        name="Minima (min)",
+        name="Mínima (min)",
         line=dict(color="green", width=2, dash="dot"),
         marker=dict(size=6)
     ))
@@ -1309,7 +1463,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
             x=iterations,
             y=top3_distances,
             mode="lines+markers",
-            name="Top-3 Media (OTIMIZACAO)",
+            name="Top-3 Média (OTIMIZAÇÃO)",
             line=dict(color="red", width=3),  # Destacar metrica principal
             marker=dict(size=10)
         ))
@@ -1319,7 +1473,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
             x=iterations,
             y=centroid_distances,
             mode="lines+markers",
-            name="Centroide (media)",
+            name="Centroide (média)",
             line=dict(color="purple", width=2, dash="dot"),
             marker=dict(size=6)
         ))
@@ -1329,14 +1483,14 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
             x=iterations,
             y=c2c_distances,
             mode="lines+markers",
-            name="Centroid-to-Centroid (ESTAVEL)",
+            name="Centroid-to-Centroid (ESTÁVEL)",
             line=dict(color="orange", width=3),  # Destacar
             marker=dict(size=10, symbol="diamond")
         ))
     
     fig.update_layout(
-        xaxis_title="Iteracao",
-        yaxis_title="Distancia Coseno",
+        xaxis_title="Iteração",
+        yaxis_title="Distância Coseno",
         hovermode="x unified",
         template="plotly_white",
         height=400
@@ -1345,9 +1499,90 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
     st.plotly_chart(fig, use_container_width=True)
     
     # ============================================================================
+    # GRAFICO DE SEPARABILIDADE
+    # ============================================================================
+    separability_scores = [getattr(r, 'separability_score', None) for r in results]
+    separability_scores = [s for s in separability_scores if s is not None]
+    
+    if separability_scores and len(separability_scores) == len(iterations):
+        st.subheader("Gráfico de Separabilidade")
+        
+        fig_sep = go.Figure()
+        
+        # Linha de referencia em 0.5 (indistinguivel)
+        fig_sep.add_hline(
+            y=0.5,
+            line_dash="dash",
+            line_color="green",
+            line_width=2,
+            annotation_text="Indistinguivel (AUC=0.5)",
+            annotation_position="top right",
+            annotation_font_size=10,
+            annotation_font_color="green",
+            annotation_x=0.98,
+            annotation_y=0.5
+        )
+        
+        # Linha da evolucao de separabilidade
+        fig_sep.add_trace(go.Scatter(
+            x=iterations,
+            y=separability_scores,
+            mode='lines+markers',
+            name='Separabilidade (|AUC - 0.5|)',
+            line=dict(color='purple', width=3),
+            marker=dict(size=10, symbol='diamond')
+        ))
+        
+        # Marcar baseline inicial se disponivel
+        initial_sep = getattr(loop, 'initial_separability', None)
+        if initial_sep is not None:
+            fig_sep.add_trace(go.Scatter(
+                x=[0],
+                y=[initial_sep],
+                mode='markers+text',
+                name='Baseline (PURAS)',
+                marker=dict(size=15, symbol='star', color='red'),
+                text=['Baseline PURAS'],
+                textposition='top center'
+            ))
+            # Ajustar posicao da anotacao da baseline para evitar sobreposicao
+            baseline_y_pos = 0.05 if initial_sep < 0.3 else 0.15
+            fig_sep.add_hline(
+                y=initial_sep,
+                line_dash="dot",
+                line_color="red",
+                line_width=2,
+                annotation_text=f"Baseline ({initial_sep:.4f})",
+                annotation_position="bottom left",
+                annotation_font_size=10,
+                annotation_font_color="red",
+                annotation_x=0.02,
+                annotation_y=baseline_y_pos
+            )
+        
+        fig_sep.update_layout(
+            xaxis_title="Iteração",
+            yaxis_title="Separabilidade (|AUC - 0.5|)",
+            hovermode='x unified',
+            template="plotly_white",
+            height=400,
+            title="Evolução da Separabilidade: Quanto Menor, Melhor (0.0 = Indistinguível, 0.5 = Muito Separável)",
+            legend=dict(
+                x=1.02,
+                y=1.0,
+                xanchor="left",
+                yanchor="top",
+                bgcolor="rgba(255, 255, 255, 0.8)",
+                bordercolor="black",
+                borderwidth=1
+            )
+        )
+        st.plotly_chart(fig_sep, use_container_width=True)
+    
+    # ============================================================================
     # GRAFICO DE TRAJETORIA (DISTANCIA DA ITERACAO 1)
     # ============================================================================
-    st.subheader("📍 Trajetoria de Convergencia (Distancia da Iteracao 1)")
+    st.subheader("📍 Trajetória de Convergência (Distância da Iteração 1)")
     
     # Extrair distancias da iteracao 1
     iter1_distances = [getattr(r, 'distance_from_iter1', None) for r in results]
@@ -1360,7 +1595,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
             x=iterations,
             y=iter1_distances,
             mode="lines+markers",
-            name="Distancia da Iter 1",
+            name="Distância da Iter 1",
             line=dict(color="teal", width=3),
             marker=dict(size=10, symbol="circle"),
             fill='tozeroy',  # Preencher area abaixo da linha
@@ -1373,8 +1608,8 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                           annotation_position="right")
         
         fig_traj.update_layout(
-            xaxis_title="Iteracao",
-            yaxis_title="Distancia Coseno (Centroide)",
+            xaxis_title="Iteração",
+            yaxis_title="Distância Coseno (Centroide)",
             hovermode="x unified",
             template="plotly_white",
             height=350,
@@ -1400,9 +1635,9 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Distancia Final da Iter 1", f"{final_dist:.4f}")
+                st.metric("Distância Final da Iter 1", f"{final_dist:.4f}")
             with col2:
-                st.metric("Maxima Distancia", f"{max_dist:.4f}")
+                st.metric("Máxima Distância", f"{max_dist:.4f}")
             with col3:
                 st.metric("Mudanca Media", f"{avg_change:.4f}")
             
@@ -1420,7 +1655,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
     # GRAFICO: DISTANCIA INICIAL PURAS VS HUMANAS + EVOLUCAO
     # ============================================================================
     st.markdown("---")
-    st.subheader("📊 Distancia das Ideias Iniciais PURAS vs Humanas + Evolucao")
+    st.subheader("📊 Distância das Ideias Iniciais PURAS vs Humanas + Evolução")
     
     # Verificar se temos a distancia inicial PURAS vs humanas
     # Para experimentos salvos: usar summary (se disponivel)
@@ -1475,7 +1710,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                 x=iterations,
                 y=c2c_distances,
                 mode="lines+markers",
-                name="Centroid-to-Centroid (Evolucao)",
+                name="Centroid-to-Centroid (Evolução)",
                 line=dict(color="blue", width=3),
                 marker=dict(size=10, symbol="circle"),
                 fill='tozeroy',
@@ -1495,8 +1730,8 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
             ))
             
             fig_initial.update_layout(
-                xaxis_title="Iteracao",
-                yaxis_title="Distancia Coseno (Centroide)",
+                xaxis_title="Iteração",
+                yaxis_title="Distância Coseno (Centroide)",
                 hovermode="x unified",
                 template="plotly_white",
                 height=400,
@@ -1547,7 +1782,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
     # ============================================================================
     if UMAP_AVAILABLE:
         st.markdown("---")
-        st.subheader("Visualizacao UMAP 3D - Evolucao das Ideias")
+        st.subheader("Visualização UMAP 3D - Evolução das Ideias")
         
         # Toggle para trajetórias
         col_toggle1, col_toggle2 = st.columns(2)
@@ -2004,7 +2239,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
                                 text=[f"{i}" for i in best_iters],  # Números nos diamantes
                                 textposition='bottom center',
                                 textfont=dict(size=14, color='purple', family='Arial Black'),  # Aumentado de 10 para 14
-                                name='Trajetoria (Melhores)',
+                                name='Trajetória (Melhores)',
                                 customdata=best_dists,
                                 hovertemplate="<b>Melhor Iter %{text}</b><br>Dist: %{customdata:.4f}<br>UMAP1: %{x:.3f}<br>UMAP2: %{y:.3f}<br>UMAP3: %{z:.3f}<extra></extra>",
                                 showlegend=True
@@ -2162,7 +2397,7 @@ if "refinement_results" in st.session_state and st.session_state["refinement_res
     st.dataframe(df, use_container_width=True, hide_index=True)
     
     # Detalhes de cada iteracao
-    st.subheader("Detalhes por Iteracao")
+    st.subheader("Detalhes por Iteração")
     
     selected_iteration = st.selectbox(
         "Selecione uma iteracao",

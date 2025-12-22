@@ -16,6 +16,80 @@ from typing import List, Optional
 from bleu_minimal_deepseek import call_deepseek
 
 
+def call_llm_robust(
+    prompt: str,
+    model: str,
+    temperature: float = 0.3,
+    max_tokens: int = 2000,
+    api_key_override: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
+) -> str:
+    """
+    Chamada robusta ao LLM que tenta automaticamente com e sem exclude_reasoning.
+    
+    Estrategia:
+    1. Tenta com exclude_reasoning=False (permite reasoning se o modelo quiser)
+    2. Se resposta for vazia ou muito curta, tenta com exclude_reasoning=True
+    
+    Isso evita o problema de alguns modelos (ex: GPT-5) retornarem vazio
+    quando exclude_reasoning=True.
+    
+    Args:
+        prompt: Prompt para o LLM
+        model: Nome do modelo
+        temperature: Temperatura de amostragem
+        max_tokens: Maximo de tokens
+        api_key_override: API key opcional
+        reasoning_effort: Esforco de reasoning (se aplicavel)
+    
+    Returns:
+        Resposta do LLM (string)
+    
+    Raises:
+        ValueError: Se ambas as tentativas falharem
+    """
+    # Tentativa 1: permite reasoning (mais robusto)
+    try:
+        response = call_deepseek(
+            prompt=prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_key_override=api_key_override,
+            reasoning_effort=reasoning_effort,
+            exclude_reasoning=False,
+        )
+        
+        # Validar se resposta parece ok (nao vazia)
+        if response and len(response.strip()) > 10:
+            return response
+        
+        print(f"[LLM_ROBUST] Resposta vazia/curta com exclude_reasoning=False, tentando com True...")
+    
+    except Exception as e:
+        print(f"[LLM_ROBUST] Erro com exclude_reasoning=False: {e}")
+    
+    # Tentativa 2: força exclude_reasoning=True
+    try:
+        response = call_deepseek(
+            prompt=prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_key_override=api_key_override,
+            reasoning_effort=None,  # Desabilita reasoning completamente
+            exclude_reasoning=True,
+        )
+        
+        if response and len(response.strip()) > 10:
+            return response
+        
+        raise ValueError("Resposta vazia mesmo com exclude_reasoning=True")
+    
+    except Exception as e:
+        raise ValueError(f"Ambas as tentativas falharam: {e}")
+
+
 NORTH_STAR_PROMPT_TEMPLATE = """You are analyzing human-written short story ideas to extract CORE PATTERNS that make them effective.
 
 Writing contest invitation:
@@ -118,14 +192,13 @@ def generate_north_star(
     print(f"[NORTH] Analisando {len(human_ideas)} ideias humanas...")
     print(f"[NORTH] Usando modelo: {model} (temperature={temperature})")
     
-    response = call_deepseek(
+    response = call_llm_robust(
         prompt=prompt,
         model=model,
         max_tokens=max_tokens,
         temperature=temperature,
         api_key_override=api_key_override,
         reasoning_effort=reasoning_effort,
-        exclude_reasoning=True,  # Queremos so o output final
     )
     
     # Limpar resposta (remover linhas vazias extras)

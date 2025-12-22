@@ -212,8 +212,9 @@ def critique_step(
         # FALLBACK: Tentar novamente com exclude_reasoning=True (costuma retornar JSON limpo)
         try:
             # Aumentar max_tokens no retry para garantir resposta completa
-            retry_max_tokens = max(max_tokens, 2000)  # Minimo 2000 tokens para JSON completo
-            print(f"[CRITIQUE] Retry com max_tokens={retry_max_tokens} (original: {max_tokens})")
+            # JSON de critique tipicamente precisa de 3000-5000 tokens
+            retry_max_tokens = max(max_tokens, 5000)  # AUMENTADO: 2000 -> 5000 tokens
+            print(f"[CRITIQUE] Retry 1 com max_tokens={retry_max_tokens} (original: {max_tokens})")
             
             response2 = call_deepseek(
                 prompt=prompt,
@@ -226,40 +227,94 @@ def critique_step(
             )
             
             # Validar se a resposta nao esta vazia ou muito curta
-            if not response2 or len(response2.strip()) < 50:
+            if not response2 or len(response2.strip()) < 100:
                 print(f"[CRITIQUE] AVISO: Resposta retry muito curta ou vazia ({len(response2) if response2 else 0} chars)")
                 raise ValueError("Resposta retry muito curta ou vazia")
             
+            # Verificar se a resposta foi cortada (termina abruptamente)
+            if response2.strip().endswith('"') or response2.strip().endswith('}') or response2.strip().endswith(']'):
+                # Parece completa, tentar parsear
+                pass
+            elif not response2.strip().endswith(']') and '[' in response2:
+                # JSON iniciado mas pode estar cortado
+                print(f"[CRITIQUE] AVISO: Resposta pode estar cortada (termina com: ...{response2[-50:]})")
+            
             print(f"[CRITIQUE] Resposta retry recebida: {len(response2)} chars")
             json_critique = _parse_json_response(response2)
-            print(f"[CRITIQUE] Retry bem-sucedido: {len(json_critique)} vibes detectadas")
+            print(f"[CRITIQUE] Retry 1 bem-sucedido: {len(json_critique)} vibes detectadas")
             return json_critique
         except Exception as e2:
-            print(f"[CRITIQUE] Retry tambem falhou: {e2}")
+            print(f"[CRITIQUE] Retry 1 tambem falhou: {e2}")
             
-            # Salvar respostas para debug
-            import tempfile
-            import os
-            debug_dir = tempfile.gettempdir()
-            
-            response1_path = os.path.join(debug_dir, "critique_response1_failed.txt")
-            with open(response1_path, "w", encoding="utf-8") as f:
-                f.write(response)
-            print(f"[CRITIQUE] Resposta original salva em: {response1_path}")
-            print(f"[CRITIQUE] Resposta original (primeiros 500 chars): {response[:500]}...")
-            if len(response) > 500:
-                print(f"[CRITIQUE] Resposta original (ultimos 500 chars): ...{response[-500:]}")
-            
-            if 'response2' in locals():
-                response2_path = os.path.join(debug_dir, "critique_response2_failed.txt")
-                with open(response2_path, "w", encoding="utf-8") as f:
-                    f.write(response2)
-                print(f"[CRITIQUE] Resposta retry salva em: {response2_path}")
-                print(f"[CRITIQUE] Resposta retry (primeiros 500 chars): {response2[:500]}...")
-                if len(response2) > 500:
-                    print(f"[CRITIQUE] Resposta retry (ultimos 500 chars): ...{response2[-500:]}")
-            
-            raise ValueError(f"Nao foi possivel parsear JSON da resposta apos 2 tentativas. Verifique os arquivos de debug em {debug_dir}")
+            # TERCEIRA TENTATIVA: Prompt simplificado + max_tokens ainda maior
+            try:
+                print(f"[CRITIQUE] Tentando retry 2 com prompt simplificado e max_tokens=6000...")
+                
+                # Criar prompt simplificado (sem histórico extenso)
+                simplified_prompt = f"""You are analyzing two sets of story ideas.
+
+SET A (Human Reference Stories):
+{chr(10).join(f"- {idea[:200]}..." if len(idea) > 200 else f"- {idea}" for idea in human_ideas[:5])}
+
+SET B (LLM Generated Stories):
+{chr(10).join(f"- {idea[:200]}..." if len(idea) > 200 else f"- {idea}" for idea in llm_ideas[:5])}
+
+Provide feedback in JSON format ONLY. Return ONLY a JSON array, no reasoning, no explanation.
+
+Format:
+[
+  {{"action": "replace", "from": "...", "to": "...", "description": "..."}},
+  {{"action": "add", "description": "..."}},
+  {{"action": "keep", "description": "..."}}
+]
+
+Return 5-8 items. JSON ONLY:"""
+                
+                response3 = call_deepseek(
+                    prompt=simplified_prompt,
+                    model=model,
+                    max_tokens=6000,  # Aumentado para garantir JSON completo
+                    temperature=0.3,  # Mais conservador
+                    api_key_override=api_key_override,
+                    reasoning_effort=None,  # Sem reasoning
+                    exclude_reasoning=True,
+                )
+                
+                if not response3 or len(response3.strip()) < 100:
+                    print(f"[CRITIQUE] AVISO: Resposta retry 2 muito curta ({len(response3) if response3 else 0} chars)")
+                    raise ValueError("Resposta retry 2 muito curta")
+                
+                print(f"[CRITIQUE] Resposta retry 2 recebida: {len(response3)} chars")
+                json_critique = _parse_json_response(response3)
+                print(f"[CRITIQUE] Retry 2 bem-sucedido: {len(json_critique)} vibes detectadas")
+                return json_critique
+                
+            except Exception as e3:
+                print(f"[CRITIQUE] Retry 2 tambem falhou: {e3}")
+                
+                # Salvar respostas para debug
+                import tempfile
+                import os
+                debug_dir = tempfile.gettempdir()
+                
+                response1_path = os.path.join(debug_dir, "critique_response1_failed.txt")
+                with open(response1_path, "w", encoding="utf-8") as f:
+                    f.write(response)
+                print(f"[CRITIQUE] Resposta original salva em: {response1_path}")
+                
+                if 'response2' in locals():
+                    response2_path = os.path.join(debug_dir, "critique_response2_failed.txt")
+                    with open(response2_path, "w", encoding="utf-8") as f:
+                        f.write(response2)
+                    print(f"[CRITIQUE] Resposta retry 1 salva em: {response2_path}")
+                
+                if 'response3' in locals():
+                    response3_path = os.path.join(debug_dir, "critique_response3_failed.txt")
+                    with open(response3_path, "w", encoding="utf-8") as f:
+                        f.write(response3)
+                    print(f"[CRITIQUE] Resposta retry 2 salva em: {response3_path}")
+                
+                raise ValueError(f"Nao foi possivel parsear JSON da resposta apos 3 tentativas. Verifique os arquivos de debug em {debug_dir}")
 
 
 def _json_sanitize(s: str) -> str:

@@ -226,6 +226,107 @@ def generate_trajectory_plot(exp_data: dict, output_dir: Path) -> None:
         print(f"[AVISO] PNG nao gerado (kaleido nao disponivel): {e}")
 
 
+def generate_separability_plot(exp_data: dict, output_dir: Path) -> None:
+    """Gera grafico de separabilidade."""
+    summary = exp_data["summary"]
+    iterations = exp_data["iterations"]
+    
+    if not iterations:
+        return
+    
+    separability_scores = [item.get("separability_score") for item in iterations]
+    separability_scores = [s for s in separability_scores if s is not None]
+    
+    if not separability_scores or len(separability_scores) != len(iterations):
+        print("[AVISO] Metrica 'separability_score' nao disponivel. Grafico de separabilidade nao sera gerado.")
+        return
+    
+    iter_nums = [item.get("iteration", i+1) for i, item in enumerate(iterations)]
+    
+    fig = go.Figure()
+    
+    # Linha de referencia em 0.5 (indistinguivel)
+    fig.add_hline(
+        y=0.5,
+        line_dash="dash",
+        line_color="green",
+        line_width=2,
+        annotation_text="Indistinguivel (AUC=0.5)",
+        annotation_position="top right",
+        annotation_font_size=10,
+        annotation_font_color="green",
+        annotation_x=0.98,
+        annotation_y=0.5
+    )
+    
+    # Linha da evolucao de separabilidade
+    fig.add_trace(go.Scatter(
+        x=iter_nums,
+        y=separability_scores,
+        mode='lines+markers',
+        name='Separabilidade (|AUC - 0.5|)',
+        line=dict(color='purple', width=3),
+        marker=dict(size=10, symbol='diamond')
+    ))
+    
+    # Marcar baseline inicial se disponivel
+    initial_sep = summary.get("initial_metrics", {}).get("separability")
+    if initial_sep is not None:
+        fig.add_trace(go.Scatter(
+            x=[0],
+            y=[initial_sep],
+            mode='markers+text',
+            name='Baseline (PURAS)',
+            marker=dict(size=15, symbol='star', color='red'),
+            text=['Baseline PURAS'],
+            textposition='top center'
+        ))
+        # Ajustar posicao da anotacao da baseline para evitar sobreposicao
+        baseline_y_pos = 0.05 if initial_sep < 0.3 else 0.15
+        fig.add_hline(
+            y=initial_sep,
+            line_dash="dot",
+            line_color="red",
+            line_width=2,
+            annotation_text=f"Baseline ({initial_sep:.4f})",
+            annotation_position="bottom left",
+            annotation_font_size=10,
+            annotation_font_color="red",
+            annotation_x=0.02,
+            annotation_y=baseline_y_pos
+        )
+    
+    fig.update_layout(
+        xaxis_title="Iteração",
+        yaxis_title="Separabilidade (|AUC - 0.5|)",
+        hovermode='x unified',
+        template="plotly_white",
+        height=600,
+        width=1200,
+        title="Evolucao da Separabilidade: Quanto Menor, Melhor (0.0 = Indistinguivel, 0.5 = Muito Separavel)",
+        legend=dict(
+            x=1.02,
+            y=1.0,
+            xanchor="left",
+            yanchor="top",
+            bgcolor="rgba(255, 255, 255, 0.8)",
+            bordercolor="black",
+            borderwidth=1
+        )
+    )
+    
+    # Salvar
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig.write_html(str(output_dir / "separabilidade.html"))
+    print(f"[OK] Grafico de separabilidade salvo: {output_dir / 'separabilidade.html'}")
+    
+    try:
+        fig.write_image(str(output_dir / "separabilidade.png"), width=1200, height=600, scale=2)
+        print(f"[OK] Imagem PNG salva: {output_dir / 'separabilidade.png'}")
+    except Exception as e:
+        print(f"[AVISO] PNG nao gerado (kaleido nao disponivel): {e}")
+
+
 def generate_umap_plot(exp_data: dict, output_dir: Path) -> None:
     """Gera grafico UMAP 3D completo."""
     try:
@@ -250,7 +351,7 @@ def generate_umap_plot(exp_data: dict, output_dir: Path) -> None:
         print("[AVISO] Nenhuma iteracao encontrada. Grafico UMAP nao sera gerado.")
         return
     
-    embedder_name = summary.get("config", {}).get("embedder", "all-MiniLM-L6-v2")
+    embedder_name = summary.get("config", {}).get("embedder", "text-embedding-3-large")  # Padrao atualizado
     
     print(f"[INFO] Carregando embedder: {embedder_name}")
     try:
@@ -707,6 +808,7 @@ def process_experiment(exp_path: Path) -> bool:
     try:
         generate_convergence_plot(exp_data, plots_dir)
         generate_trajectory_plot(exp_data, plots_dir)
+        generate_separability_plot(exp_data, plots_dir)
         generate_umap_plot(exp_data, plots_dir)
         generate_config_summary(exp_data, plots_dir)
         

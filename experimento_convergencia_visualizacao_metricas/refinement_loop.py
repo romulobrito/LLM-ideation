@@ -33,6 +33,81 @@ from refinement_clustering import (
     get_best_cluster,
 )
 from bleu_minimal_deepseek import call_deepseek
+from refinement_consolidation import consolidate_similar_ideas
+
+
+def call_llm_robust(
+    prompt: str,
+    model: str,
+    temperature: float = 0.3,
+    max_tokens: int = 2000,
+    api_key_override: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
+) -> str:
+    """
+    Chamada robusta ao LLM que tenta automaticamente com e sem exclude_reasoning.
+    
+    Estrategia:
+    1. Tenta com exclude_reasoning=False (permite reasoning se o modelo quiser)
+    2. Se resposta for vazia ou muito curta, tenta com exclude_reasoning=True
+    
+    Isso evita o problema de alguns modelos (ex: GPT-5) retornarem vazio
+    quando exclude_reasoning=True.
+    
+    Args:
+        prompt: Prompt para o LLM
+        model: Nome do modelo
+        temperature: Temperatura de amostragem
+        max_tokens: Maximo de tokens
+        api_key_override: API key opcional
+        reasoning_effort: Esforco de reasoning (se aplicavel)
+    
+    Returns:
+        Resposta do LLM (string)
+    
+    Raises:
+        ValueError: Se ambas as tentativas falharem
+    """
+    # Tentativa 1: permite reasoning (mais robusto)
+    try:
+        response = call_deepseek(
+            prompt=prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_key_override=api_key_override,
+            reasoning_effort=reasoning_effort,
+            exclude_reasoning=False,
+        )
+        
+        # Validar se resposta parece ok (nao vazia)
+        if response and len(response.strip()) > 10:
+            return response
+        
+        print(f"[LLM_ROBUST] Resposta vazia/curta com exclude_reasoning=False, tentando com True...")
+    
+    except Exception as e:
+        print(f"[LLM_ROBUST] Erro com exclude_reasoning=False: {e}")
+    
+    # Tentativa 2: força exclude_reasoning=True
+    try:
+        response = call_deepseek(
+            prompt=prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_key_override=api_key_override,
+            reasoning_effort=None,  # Desabilita reasoning completamente
+            exclude_reasoning=True,
+        )
+        
+        if response and len(response.strip()) > 10:
+            return response
+        
+        raise ValueError("Resposta vazia mesmo com exclude_reasoning=True")
+    
+    except Exception as e:
+        raise ValueError(f"Ambas as tentativas falharam: {e}")
 
 
 @dataclass
@@ -57,6 +132,9 @@ class IterationResult:
     top3_mean_distance_normalized: Optional[float] = None  # Top-3 media normalizada (1.0 = baseline, <1.0 = melhor, >1.0 = pior)
     centroid_distance_normalized: Optional[float] = None  # Distancia centroide normalizada (1.0 = baseline, <1.0 = melhor, >1.0 = pior)
     north_star: Optional[str] = None  # Norte fixo gerado (CORE DIRECTIVES) - mesmo para todas as iteracoes
+    # Metrica de separabilidade (classificador)
+    separability_score: Optional[float] = None  # Separabilidade = |AUC - 0.5| (0.0 = indistinguivel ✅, 0.5 = muito separavel ❌)
+    separability_auc: Optional[float] = None  # AUC-ROC do classificador (0.5 = indistinguivel ✅, 1.0 = muito separavel ❌)
     
     def to_dict(self) -> Dict:
         """Converte para dicionario."""
@@ -70,7 +148,7 @@ class RefinementConfig:
     directive: str
     human_ideas: List[str]
     model: str = "gpt-4o-mini"
-    embedder_name: str = "all-MiniLM-L6-v2"
+    embedder_name: str = "text-embedding-3-large"  # Padrao: OpenAI embeddings (mais preciso)
     device: str = "auto"
     max_iterations: int = 5
     patience: int = 5  
@@ -106,6 +184,12 @@ class RefinementConfig:
     ema_worse_threshold: float = 0.02  # Threshold relativo para piora (2%)
     ema_stall_patience: int = 8  # Iteracoes consecutivas estagnadas antes de parar (AJUSTADO: 5 -> 8 para mais paciencia)
     ema_worse_patience: int = 3  # Iteracoes consecutivas piorando antes de parar
+    # Parametros de consolidacao semantica (Fase 1)
+    enable_consolidation: bool = False  # Habilitar consolidacao de ideias similares (desabilitado por padrao)
+    consolidation_threshold: float = 0.60  # Limiar de similaridade para agrupar (0.60 = 60% similar, mais agressivo)
+    consolidation_max_group_size: int = 4  # Tamanho maximo de grupo para consolidar
+    consolidation_model: str = "gpt-4o-mini"  # Modelo para consolidar ideias
+    consolidation_temperature: float = 0.3  # Temperatura para consolidacao (mais conservador)
 
 
 class RefinementLoop:
@@ -150,6 +234,7 @@ class RefinementLoop:
         self.initial_top3_mean: Optional[float] = None  # Baseline do top3 mean
         self.initial_centroid_distance: Optional[float] = None  # Baseline da distancia centroide
         self.initial_centroid_to_centroid: Optional[float] = None  # Baseline do centroid-to-centroid
+        self.initial_separability: Optional[float] = None  # Baseline de separabilidade
         
         # Campos de EMA (Exponential Moving Average) - TODAS as metricas
         self.ema_metric: Optional[float] = None  # EMA da metrica de otimizacao
@@ -165,6 +250,7 @@ class RefinementLoop:
         self.ema_min_dist_normalized: Optional[float] = None  # EMA da distancia minima normalizada
         self.ema_top3_mean_normalized: Optional[float] = None  # EMA do top-3 mean normalizado
         self.ema_centroid_distance_normalized: Optional[float] = None  # EMA da distancia centroide normalizada
+        self.ema_separability: Optional[float] = None  # EMA da separabilidade
         self.best_ema: float = float('inf')  # Melhor EMA alcancado
         self.ema_stall_counter: int = 0  # Contador de estagnacao
         self.ema_worse_counter: int = 0  # Contador de pioras consecutivas
@@ -340,7 +426,7 @@ class RefinementLoop:
         # Calcular TODAS as metricas iniciais das ideias PURAS (baselines para normalizacao)
         print("[LOOP] Calculando TODAS as metricas iniciais das ideias PURAS (baselines)...")
         (initial_avg_dist, initial_min_dist, _, initial_top3_mean, initial_centroid_dist, 
-         initial_c2c_dist, _, _, _, _, _, _) = self._compute_distances(current_llm_ideas)
+         initial_c2c_dist, _, _, _, _, _, _, initial_separability, initial_auc) = self._compute_distances(current_llm_ideas)
         
         # Salvar baselines para normalizacao (cada metrica tem sua propria baseline)
         self.initial_distance_to_humans = initial_c2c_dist  # Para compatibilidade (centroid_to_centroid)
@@ -349,6 +435,7 @@ class RefinementLoop:
         self.initial_top3_mean = initial_top3_mean
         self.initial_centroid_distance = initial_centroid_dist
         self.initial_centroid_to_centroid = initial_c2c_dist
+        self.initial_separability = initial_separability  # Baseline de separabilidade
         
         print(f"[LOOP] Baselines iniciais (PURAS vs humanas):")
         print(f"  - Avg distance:        {self.initial_avg_distance:.4f}")
@@ -356,6 +443,8 @@ class RefinementLoop:
         print(f"  - Top3 mean:           {self.initial_top3_mean:.4f}")
         print(f"  - Centroid distance:   {self.initial_centroid_distance:.4f}")
         print(f"  - Centroid-to-Centroid: {self.initial_centroid_to_centroid:.4f}")
+        if initial_separability is not None:
+            print(f"  - Separability:        {initial_separability:.4f} (AUC: {initial_auc:.4f})")
         
         no_improvement_count = 0
         worsening_count = 0  #  Contador de pioras consecutivas
@@ -383,6 +472,30 @@ class RefinementLoop:
             else:
                 critique_llm_ideas = all_generated_ideas
                 print(f"[LOOP] Critique usando {len(critique_llm_ideas)} ideias acumuladas")
+            
+            # CONSOLIDACAO SEMANTICA (Fase 1): Colapsar ideias similares antes do critique
+            if self.config.enable_consolidation and len(critique_llm_ideas) > 1:
+                print(f"\n[LOOP] Consolidacao semantica habilitada (threshold={self.config.consolidation_threshold})")
+                try:
+                    consolidated_ideas, consolidation_meta = consolidate_similar_ideas(
+                        ideas=critique_llm_ideas,
+                        embedder=self.embedder,
+                        model=self.config.consolidation_model,
+                        threshold=self.config.consolidation_threshold,
+                        max_group_size=self.config.consolidation_max_group_size,
+                        temperature=self.config.consolidation_temperature,
+                        max_tokens=self.config.max_tokens,
+                        api_key_override=self.config.api_key_override,
+                        reasoning_effort=self.config.reasoning_effort,
+                    )
+                    
+                    # Substituir ideias por versao consolidada
+                    critique_llm_ideas = consolidated_ideas
+                    print(f"[LOOP] Consolidacao concluida: {consolidation_meta['num_original']} -> {consolidation_meta['num_final']} ideias")
+                    
+                except Exception as e:
+                    print(f"[LOOP] ERRO na consolidacao: {e}")
+                    print(f"[LOOP] Continuando com ideias nao consolidadas")
             
             # Preparar historico de feedback anterior (todas as iteracoes)
             previous_feedbacks = []
@@ -462,7 +575,8 @@ class RefinementLoop:
             
             # Calcular distancias (todas as metricas) - VALORES BRUTOS E NORMALIZADOS
             (avg_dist, min_dist, individual_dists, top3_mean, centroid_dist, c2c_dist, dist_from_iter1, c2c_normalized,
-             avg_dist_normalized, min_dist_normalized, top3_mean_normalized, centroid_dist_normalized) = self._compute_distances(new_ideas)
+             avg_dist_normalized, min_dist_normalized, top3_mean_normalized, centroid_dist_normalized,
+             separability_score, separability_auc) = self._compute_distances(new_ideas)
             
             # Selecionar metrica de otimizacao (para EMA)
             if self.config.optimize_metric == "avg":
@@ -475,6 +589,9 @@ class RefinementLoop:
                 current_metric = centroid_dist
             elif self.config.optimize_metric == "centroid_to_centroid":
                 current_metric = c2c_dist
+            elif self.config.optimize_metric == "separability":
+                # Separabilidade: |AUC - 0.5| (0.0 = indistinguivel, 0.5 = muito separavel)
+                current_metric = separability_score if separability_score is not None else float('inf')
             else:
                 current_metric = avg_dist  # Fallback
             
@@ -495,6 +612,9 @@ class RefinementLoop:
                 new_ema_min_norm = self._ema_update(self.ema_min_dist_normalized, min_dist_normalized) if min_dist_normalized is not None else None
                 new_ema_top3_norm = self._ema_update(self.ema_top3_mean_normalized, top3_mean_normalized) if top3_mean_normalized is not None else None
                 new_ema_centroid_norm = self._ema_update(self.ema_centroid_distance_normalized, centroid_dist_normalized) if centroid_dist_normalized is not None else None
+                
+                # Calcular EMA para separabilidade
+                new_ema_separability = self._ema_update(self.ema_separability, separability_score) if separability_score is not None else None
                 
                 # SUBSTITUIR valores brutos pelos suavizados (EMA)
                 # Isso permite entender por que convergiu olhando valores suavizados
@@ -535,15 +655,31 @@ class RefinementLoop:
                 self.ema_top3_mean_normalized = new_ema_top3_norm
                 self.ema_centroid_distance_normalized = new_ema_centroid_norm
                 
+                # Atualizar EMA de separabilidade e substituir valor bruto pelo EMA
+                if new_ema_separability is not None:
+                    separability_score = new_ema_separability
+                self.ema_separability = new_ema_separability
+                
                 # Calcular mudancas
                 if self.ema_metric is not None:
-                    rel_change = (new_ema_metric - self.ema_metric) / self.ema_metric
                     abs_change = abs(new_ema_metric - self.ema_metric)
+                    
+                    # Calcular mudanca relativa (evitar divisao por zero)
+                    if abs(self.ema_metric) < 1e-10:  # Praticamente zero
+                        # Se EMA anterior era zero, usar mudanca absoluta como referencia
+                        rel_change = abs_change if abs_change > 0 else 0.0
+                        rel_change_pct = float('inf') if new_ema_metric != 0 else 0.0
+                    else:
+                        rel_change = (new_ema_metric - self.ema_metric) / self.ema_metric
+                        rel_change_pct = rel_change * 100
                     
                     print(f"\n[EMA] Metrica bruta: {current_metric:.4f}")
                     print(f"[EMA] EMA atual: {new_ema_metric:.4f}")
                     print(f"[EMA] EMA anterior: {self.ema_metric:.4f}")
-                    print(f"[EMA] Mudanca relativa: {rel_change*100:+.2f}%")
+                    if abs(self.ema_metric) >= 1e-10:
+                        print(f"[EMA] Mudanca relativa: {rel_change_pct:+.2f}%")
+                    else:
+                        print(f"[EMA] Mudanca relativa: N/A (EMA anterior era zero)")
                     print(f"[EMA] Mudanca absoluta: {abs_change:.5f}")
                     
                     # 1. ESTAGNACAO (mudanca muito pequena)
@@ -553,16 +689,16 @@ class RefinementLoop:
                     else:
                         self.ema_stall_counter = 0
                     
-                    # 2. DIVERGENCIA (piora consistente)
-                    if rel_change >= self.config.ema_worse_threshold:
+                    # 2. DIVERGENCIA (piora consistente) - so verificar se EMA anterior nao era zero
+                    if abs(self.ema_metric) >= 1e-10 and rel_change >= self.config.ema_worse_threshold:
                         self.ema_worse_counter += 1
-                        print(f"[EMA] Piora: +{rel_change*100:.2f}% ({self.ema_worse_counter}/{self.config.ema_worse_patience})")
+                        print(f"[EMA] Piora: +{rel_change_pct:.2f}% ({self.ema_worse_counter}/{self.config.ema_worse_patience})")
                     else:
                         self.ema_worse_counter = 0
                     
-                    # 3. MELHORIA (informativo)
-                    if rel_change <= -self.config.ema_improve_threshold:
-                        print(f"[EMA] Melhoria significativa: {rel_change*100:.2f}%")
+                    # 3. MELHORIA (informativo) - so verificar se EMA anterior nao era zero
+                    if abs(self.ema_metric) >= 1e-10 and rel_change <= -self.config.ema_improve_threshold:
+                        print(f"[EMA] Melhoria significativa: {rel_change_pct:.2f}%")
                 else:
                     # Primeira iteracao
                     print(f"\n[EMA] Inicializando EMA com valor: {new_ema_metric:.4f}")
@@ -603,14 +739,25 @@ class RefinementLoop:
                     if self.best_ema != float('inf') and self.ema_metric is not None:
                         # Calcular diferenca absoluta e relativa
                         abs_diff = self.ema_metric - self.best_ema
-                        rel_piora = (abs_diff / self.best_ema) * 100 if self.best_ema > 0 else float('inf')
+                        
+                        # Calcular piora relativa (evitar divisao por zero)
+                        if abs(self.best_ema) < 1e-10:  # Praticamente zero
+                            # Se best_ema era zero, usar apenas diferenca absoluta
+                            rel_piora = abs_diff * 100 if abs_diff > 0 else 0.0
+                        else:
+                            rel_piora = (abs_diff / self.best_ema) * 100
                         
                         # Considera "perto do melhor" se:
                         # 1. Diferenca absoluta <= threshold (ex: 0.01)
                         # 2. E piora relativa <= 1% (nao pode ter piorado mais de 1% em relacao ao melhor)
+                        #    OU se best_ema era zero, apenas verificar diferenca absoluta
                         # Isso evita declarar convergencia quando houve piora significativa
                         abs_ok = abs_diff <= self.config.ema_stall_threshold
-                        rel_ok = rel_piora <= 1.0  # Maximo 1% de piora relativa
+                        if abs(self.best_ema) < 1e-10:
+                            # Se best_ema era zero, apenas verificar diferenca absoluta
+                            rel_ok = True
+                        else:
+                            rel_ok = rel_piora <= 1.0  # Maximo 1% de piora relativa
                         near_best = abs_ok and rel_ok
                         
                         if not near_best:
@@ -761,6 +908,8 @@ class RefinementLoop:
                 min_distance_normalized=min_dist_normalized,  # Já suavizado se EMA ativo
                 top3_mean_distance_normalized=top3_mean_normalized,  # Já suavizado se EMA ativo
                 centroid_distance_normalized=centroid_dist_normalized,  # Já suavizado se EMA ativo
+                separability_score=separability_score,  # Já suavizado se EMA ativo
+                separability_auc=separability_auc,  # AUC bruto (não suavizado)
                 north_star=self.north_star,  # Norte fixo (CORE DIRECTIVES) - mesmo para todas as iteracoes
                 timestamp=datetime.now().isoformat(),
             )
@@ -971,14 +1120,13 @@ Output the revised bullets now:"""
 
         try:
             print("[LOOP] Usando LLM para detectar e resolver conflitos entre CORE e CURRENT...")
-            response = call_deepseek(
+            response = call_llm_robust(
                 prompt=prompt,
                 model=self.config.model,
                 temperature=0.3,  # Conservador para análise precisa
                 max_tokens=2000,
                 api_key_override=self.config.api_key_override,
                 reasoning_effort=None,
-                exclude_reasoning=True,  # Queremos só o resultado final
             )
             
             # Limpar e validar resposta
@@ -1067,14 +1215,13 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
 
             try:
                 print(f"[LOOP] Validando conformidade de {len(batch)} ideias usando LLM...")
-                response = call_deepseek(
+                response = call_llm_robust(
                     prompt=prompt,
                     model=self.config.model,
                     temperature=0.3,  # Conservador para validação precisa
                     max_tokens=2000,
                     api_key_override=self.config.api_key_override,
                     reasoning_effort=None,
-                    exclude_reasoning=True,  # Queremos só o JSON
                 )
                 
                 # Parsear resposta JSON
@@ -1135,7 +1282,103 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
         alpha = self.config.ema_alpha
         return alpha * current_value + (1 - alpha) * prev_ema
     
-    def _compute_distances(self, llm_ideas: List[str]) -> Tuple[float, float, List[float], float, float, float, float, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]:
+    def _compute_separability(self, llm_embeddings: np.ndarray) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Calcula separabilidade usando classificador binario (humano vs LLM).
+        
+        Args:
+            llm_embeddings: Embeddings das ideias LLM (n_llm, d)
+        
+        Returns:
+            Tupla (separability_score, auc) onde:
+            - separability_score: |AUC - 0.5| (distancia do ideal)
+              * 0.0 = indistinguivel (AUC = 0.5) ✅ BOM (MINIMIZAR)
+              * 0.5 = perfeitamente separavel (AUC = 0.0 ou 1.0) ❌ RUIM
+            - auc: AUC-ROC do classificador
+              * 0.5 = indistinguivel ✅ BOM
+              * 1.0 ou 0.0 = perfeitamente separavel ❌ RUIM
+        
+        IMPORTANTE: MINIMIZAR separability_score (quanto menor, mais indistinguivel).
+        Sempre usa validacao cruzada ou split para evitar data leakage.
+        """
+        try:
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.model_selection import train_test_split, StratifiedKFold
+            from sklearn.metrics import roc_auc_score
+            
+            # Verificar se temos dados suficientes
+            n_human = len(self.human_embeddings)
+            n_llm = len(llm_embeddings)
+            
+            # Precisamos de pelo menos 4 amostras totais para split treino/teste
+            if n_human < 2 or n_llm < 2:
+                print(f"[SEPARABILITY] Dados insuficientes: {n_human} humanas, {n_llm} LLM. Pulando calculo.")
+                return None, None
+            
+            # Empilhar embeddings e criar labels
+            X = np.vstack([self.human_embeddings, llm_embeddings])
+            y = np.concatenate([
+                np.zeros(n_human, dtype=int),  # humano = 0
+                np.ones(n_llm, dtype=int)      # LLM = 1
+            ])
+            
+            # SEMPRE usar validacao cruzada (ou split) para evitar data leakage
+            n_samples = len(X)
+            min_class_samples = min(np.sum(y == 0), np.sum(y == 1))
+            
+            if min_class_samples < 2:
+                # Impossivel fazer split/CV: precisa pelo menos 2 de cada classe
+                print(f"[SEPARABILITY] ERRO: Dados insuficientes ({n_samples} total, {min_class_samples} por classe). Impossivel calcular AUC com holdout.")
+                print(f"[SEPARABILITY] Retornando AUC=0.5 (indistinguivel por falta de dados)")
+                return 0.0, 0.5  # Indistinguivel por falta de dados
+            
+            # SEMPRE usar CV ou split (NUNCA treinar e testar no mesmo conjunto)
+            if min_class_samples < 3:
+                # 2 por classe: usar split 50/50 (minimo possivel)
+                print(f"[SEPARABILITY] AVISO: Poucos dados ({n_samples} total, {min_class_samples} por classe). Usando split 50/50.")
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=0.5, stratify=y, random_state=42
+                )
+                clf = LogisticRegression(max_iter=1000, random_state=42, solver='lbfgs')
+                clf.fit(X_train, y_train)
+                y_prob = clf.predict_proba(X_test)[:, 1]
+                auc = roc_auc_score(y_test, y_prob)
+                auc_std = 0.0  # Nao temos desvio sem CV
+            else:
+                # >=3 por classe: usar validacao cruzada (SEMPRE, mesmo com poucos dados)
+                n_splits = min(min_class_samples, 5)  # Max 5 folds, limitado pela classe menor
+                cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+                auc_scores = []
+                
+                print(f"[SEPARABILITY] Usando StratifiedKFold com {n_splits} folds ({n_samples} amostras, {min_class_samples} por classe)")
+                
+                for fold_idx, (train_idx, test_idx) in enumerate(cv.split(X, y)):
+                    clf = LogisticRegression(max_iter=1000, random_state=42, solver='lbfgs')
+                    clf.fit(X[train_idx], y[train_idx])
+                    y_prob = clf.predict_proba(X[test_idx])[:, 1]
+                    auc_fold = roc_auc_score(y[test_idx], y_prob)
+                    auc_scores.append(auc_fold)
+                
+                auc = np.mean(auc_scores)
+                auc_std = np.std(auc_scores)
+                print(f"[SEPARABILITY] AUC (CV {n_splits}-fold): {auc:.4f} ± {auc_std:.4f}")
+            
+            # Separabilidade corrigida: distância do ideal (0.5)
+            # 0.0 = indistinguivel (AUC=0.5), 0.5 = muito separavel (AUC=0.0 ou 1.0)
+            separability_score = abs(auc - 0.5)
+            
+            print(f"[SEPARABILITY] AUC: {auc:.4f}, Separability (|AUC-0.5|): {separability_score:.4f}")
+            
+            return float(separability_score), float(auc)
+            
+        except ImportError:
+            print("[SEPARABILITY] sklearn nao disponivel. Pulando calculo de separabilidade.")
+            return None, None
+        except Exception as e:
+            print(f"[SEPARABILITY] Erro ao calcular separabilidade: {e}")
+            return None, None
+    
+    def _compute_distances(self, llm_ideas: List[str]) -> Tuple[float, float, List[float], float, float, float, float, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]:
         """
         Computa multiplas metricas de distancia entre ideias da LLM e humanas.
         
@@ -1145,7 +1388,8 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
         Returns:
             Tupla (avg_distance, min_distance, individual_distances, top3_mean, centroid_distance, 
                    centroid_to_centroid, distance_from_iter1, centroid_to_centroid_normalized,
-                   avg_distance_normalized, min_distance_normalized, top3_mean_normalized, centroid_distance_normalized)
+                   avg_distance_normalized, min_distance_normalized, top3_mean_normalized, centroid_distance_normalized,
+                   separability_score, separability_auc)
         """
         # Embed ideias da LLM usando embed_texts() (suporta OpenAI e local)
         llm_embeddings = embed_texts(self.embedder, llm_ideas)
@@ -1226,13 +1470,18 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
         if self.initial_centroid_distance is not None and self.initial_centroid_distance > 0:
             centroid_distance_normalized = centroid_distance / self.initial_centroid_distance
         
+        # Calcular separabilidade (sempre, independente da metrica escolhida)
+        separability_score, separability_auc = self._compute_separability(llm_embeddings)
+        
         return (
             avg_distance, min_distance, individual_distances, top3_mean, 
             centroid_distance, centroid_to_centroid, distance_from_iter1, 
             centroid_to_centroid_normalized,
             # Versoes normalizadas
             avg_distance_normalized, min_distance_normalized, 
-            top3_mean_normalized, centroid_distance_normalized
+            top3_mean_normalized, centroid_distance_normalized,
+            # Separabilidade
+            separability_score, separability_auc
         )
     
     def _save_iteration(self, result: IterationResult) -> None:
@@ -1268,6 +1517,7 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
             "total_iterations": len(self.results),
             "best_avg_distance": min(r.avg_distance for r in self.results) if self.results else None,
             "best_min_distance": min(r.min_distance for r in self.results) if self.results else None,
+            "best_separability": min((r.separability_score for r in self.results if r.separability_score is not None), default=None),
             "best_ema": self.best_ema if self.config.use_ema else None,
             "final_ema_metric": self.ema_metric if self.config.use_ema else None,
             "final_ema_min_dist": self.ema_min_dist if self.config.use_ema else None,
@@ -1279,12 +1529,15 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
                 "top3_mean": self.initial_top3_mean,
                 "centroid_distance": self.initial_centroid_distance,
                 "centroid_to_centroid": self.initial_centroid_to_centroid,
+                "separability": getattr(self, 'initial_separability', None),
             },
             "iterations": [
                 {
                     "iteration": r.iteration,
                     "avg_distance": r.avg_distance,
                     "min_distance": r.min_distance,
+                    "separability_score": r.separability_score,
+                    "separability_auc": r.separability_auc,
                     "num_ideas": len(r.generated_ideas),
                     "timestamp": r.timestamp,
                 }
@@ -1617,7 +1870,99 @@ Use ONLY standard ASCII quotes. Output ONLY the JSON array, nothing else:"""
                 
                 print(f"[LOOP] Grafico de metrica normalizada salvo em: {plots_dir / 'metrica_normalizada.html'}")
             
-            # 5. Salvar configuracoes principais
+            # 5. Grafico de Separabilidade
+            separability_scores = [getattr(r, 'separability_score', None) for r in self.results]
+            separability_scores = [s for s in separability_scores if s is not None]
+            
+            if separability_scores and len(separability_scores) == len(iterations):
+                fig_sep = go.Figure()
+                
+                # Linha de referencia em 0.0 (indistinguivel)
+                fig_sep.add_hline(
+                    y=0.0,
+                    line_dash="dash",
+                    line_color="green",
+                    line_width=2,
+                    annotation_text="Indistinguivel (|AUC-0.5|=0)",
+                    annotation_position="bottom right",
+                    annotation_font_size=10,
+                    annotation_font_color="green",
+                    annotation_x=0.98,
+                    annotation_y=0.02
+                )
+                
+                # Linha da evolucao de separabilidade
+                fig_sep.add_trace(go.Scatter(
+                    x=iterations,
+                    y=separability_scores,
+                    mode="lines+markers",
+                    name="Separabilidade (|AUC - 0.5|)",
+                    line=dict(color="purple", width=3),
+                    marker=dict(size=10, symbol="diamond"),
+                    fill='tozeroy',
+                    fillcolor='rgba(128, 0, 128, 0.1)'
+                ))
+                
+                # Marcar baseline inicial se disponivel
+                if self.initial_separability is not None:
+                    fig_sep.add_trace(go.Scatter(
+                        x=[0],
+                        y=[self.initial_separability],
+                        mode="markers+text",
+                        name="Baseline (Ideias PURAS)",
+                        marker=dict(size=15, symbol="star", color="red"),
+                        text=["Baseline PURAS"],
+                        textposition="top center",
+                        textfont=dict(size=12, color="red")
+                    ))
+                    # Ajustar posicao da anotacao da baseline para evitar sobreposicao
+                    baseline_y_pos = 0.05 if self.initial_separability < 0.3 else 0.15
+                    fig_sep.add_hline(
+                        y=self.initial_separability,
+                        line_dash="dot",
+                        line_color="red",
+                        line_width=2,
+                        annotation_text=f"Baseline ({self.initial_separability:.4f})",
+                        annotation_position="bottom left",
+                        annotation_font_size=10,
+                        annotation_font_color="red",
+                        annotation_x=0.02,
+                        annotation_y=baseline_y_pos
+                    )
+                
+                fig_sep.update_layout(
+                    xaxis_title="Iteracao",
+                    yaxis_title="Separabilidade (|AUC - 0.5|)",
+                    hovermode="x unified",
+                    template="plotly_white",
+                    height=600,
+                    width=1200,
+                    title="Evolucao da Separabilidade: Quanto Menor, Melhor (0.0 = Indistinguivel, 0.5 = Muito Separavel)",
+                    xaxis=dict(range=[-0.5, max(iterations) + 0.5] if self.initial_separability is None else [-0.5, max(iterations) + 0.5]),
+                    yaxis=dict(
+                        title="<0.5 = Indistinguivel | 0.5 = Perfeito | >0.5 = Distinguivel"
+                    ),
+                    legend=dict(
+                        x=1.02,
+                        y=1.0,
+                        xanchor="left",
+                        yanchor="top",
+                        bgcolor="rgba(255, 255, 255, 0.8)",
+                        bordercolor="black",
+                        borderwidth=1
+                    )
+                )
+                
+                # Salvar HTML e PNG
+                fig_sep.write_html(str(plots_dir / "separabilidade.html"))
+                try:
+                    fig_sep.write_image(str(plots_dir / "separabilidade.png"), width=1200, height=600, scale=2)
+                except Exception:
+                    print("[LOOP] Nao foi possivel salvar PNG (kaleido nao disponivel). HTML salvo.")
+                
+                print(f"[LOOP] Grafico de separabilidade salvo em: {plots_dir / 'separabilidade.html'}")
+            
+            # 6. Salvar configuracoes principais
             config_summary = {
                 "configuracao_principal": {
                     "model": self.config.model,
@@ -2025,7 +2370,7 @@ This week, let's write stories about that pull between people. From fleeting rel
             directive=DIRECTIVE,
             human_ideas=HUMAN_IDEAS,
             model="gpt-4o-mini",
-            embedder_name="all-MiniLM-L6-v2",
+            embedder_name="text-embedding-3-large",  # Padrao atualizado
             max_iterations=2,  # Apenas 2 para teste
             patience=1,
             num_ideas_per_iter=3,
