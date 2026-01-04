@@ -2370,7 +2370,7 @@ This week, let's write stories about that pull between people. From fleeting rel
             directive=DIRECTIVE,
             human_ideas=HUMAN_IDEAS,
             model="gpt-4o-mini",
-            embedder_name="text-embedding-3-large",  # Padrao atualizado
+            embedder_name="text-embedding-3-large",  
             max_iterations=2,  # Apenas 2 para teste
             patience=1,
             num_ideas_per_iter=3,

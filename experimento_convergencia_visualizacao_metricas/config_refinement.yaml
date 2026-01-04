@@ -1,0 +1,64 @@
+# Configuracao para Refinement Loop
+
+# Invitation e Directive (configuraveis via YAML)
+invitation: |
+  Strangers Again
+
+  I've been thinking a lot lately about the need to feel connected - to be seen, remembered, or maybe even just understood. Over the years, I've noticed how connection can manifest in the smallest of things: a shared meal, a passing glance, a familiar name we can't quite place.
+
+  This week, let's write stories about that pull between people. From fleeting relationships to chance encounters with strangers who seem like old friends, let's explore yearning and connection, even when things are complicated or just out of reach.
+
+directive: "Center your story around two characters who like each other but don't get a happily ever after."
+
+human_ideas:
+  path: "ideas-exp/human"  # Caminho para diretorio ou arquivo
+  limit: null  # null = usar todas, ou numero especifico (ex: 8)
+
+model:
+  name: "deepseek/deepseek-v3.2-exp"
+  temperature: 1.0
+  max_tokens: 4000
+  reasoning_effort: minimal  # null, "minimal", "low", "medium", "high"
+
+embedder:
+  name: "text-embedding-3-large"  # Padrao: mais preciso (3072D)
+  device: "auto"  # "auto", "cpu", "cuda"
+
+clustering:
+  enabled: true
+  method: "agglomerative"  # "kmeans" ou "agglomerative"
+  n_clusters: 4  # Para kmeans
+  distance_threshold: 0.4  # Para agglomerative
+  min_cluster_size: 8
+  selected_cluster_id: null  # null = auto-select melhor cluster
+
+north_star:
+  enabled: true
+  model: "gpt-4o"  # Modelo para gerar norte fixo
+
+consolidation:
+  enabled: false
+  threshold: 0.60  # Limiar de similaridade para agrupar (0.60 = 60% similar)
+  max_group_size: 4  # Tamanho maximo de grupo para consolidar
+  model: "gpt-4o-mini"  # Modelo para consolidar ideias
+  temperature: 0.3  # Temperatura para consolidacao
+
+generation:
+  num_ideas_per_iter: 16  # Numero de ideias a gerar por iteracao
+  temperature: 1.0  # Temperatura para geracao
+
+convergence:
+  max_iterations: 20  # Numero maximo de iteracoes
+  patience: 10  # Iteracoes sem melhoria antes de parar
+  delta_threshold: 0.005  # Melhoria minima para considerar progresso
+  optimize_metric: "min"  # "avg", "min", "top3_mean", "centroid", "centroid_to_centroid", "separability"
+
+divergence_stop:
+  enabled: true  # Habilitar parada por divergencia
+  threshold: 0.08  # Piora maxima tolerada (0.08 = 8%)
+  max_consecutive_worsening: 3  # Max iteracoes consecutivas piorando
+  max_distance_from_start: 0.30  # Distancia maxima da iteracao 1
+
+output:
+  dir: "exp_refinement_test"  # Diretorio de saida (relativo ao CWD ou absoluto)
+
