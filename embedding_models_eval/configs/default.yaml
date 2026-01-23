@@ -1,0 +1,113 @@
+# Configuracao padrao para pipeline de avaliacao de embeddings
+# Permite testar diferentes modelos e metricas sem modificar codigo
+
+# Configuracao do dataset
+dataset:
+  path: "saida_final.json"
+  text_col: "extracted_idea_250"  # Coluna de texto para embedar
+  truncate_content: 0  # 0 = sem truncamento
+
+# Configuracao de embeddings
+# Para adicionar um novo modelo, apenas adicione uma nova entrada em models
+models:
+  # ========================================================================
+  # SENTENCE-TRANSFORMERS (Gratuitos, locais)
+  # ========================================================================
+  
+  # Modelo rapido e leve (384D)
+  - name: "minilm"
+    provider: "sentence_transformers"
+    config:
+      model_name: "sentence-transformers/all-MiniLM-L6-v2"
+      batch_size: 32
+      normalize: true
+      device: "cpu"  # ou "cuda"
+  
+  # Versao maior do MiniLM (384D)
+  - name: "minilm_l12"
+    provider: "sentence_transformers"
+    config:
+      model_name: "sentence-transformers/all-MiniLM-L12-v2"
+      batch_size: 32
+      normalize: true
+      device: "cpu"
+  
+  # Modelo de alta qualidade (768D)
+  - name: "mpnet_base"
+    provider: "sentence_transformers"
+    config:
+      model_name: "sentence-transformers/all-mpnet-base-v2"
+      batch_size: 32
+      normalize: true
+      device: "cpu"
+  
+  # Multilingual (384D)
+  - name: "multilingual"
+    provider: "sentence_transformers"
+    config:
+      model_name: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+      batch_size: 32
+      normalize: true
+      device: "cpu"
+  
+  # Otimizado para parafrases (384D)
+  - name: "paraphrase_minilm"
+    provider: "sentence_transformers"
+    config:
+      model_name: "sentence-transformers/paraphrase-MiniLM-L6-v2"
+      batch_size: 32
+      normalize: true
+      device: "cpu"
+  
+  # Otimizado para Q&A e similaridade (384D)
+  - name: "multi_qa_minilm"
+    provider: "sentence_transformers"
+    config:
+      model_name: "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
+      batch_size: 32
+      normalize: true
+      device: "cpu"
+  
+  # ========================================================================
+  # OPENAI EMBEDDINGS (API, pago - requer OPENAI_API_KEY)
+  # ========================================================================
+  # A chave sera carregada automaticamente do .env via python-dotenv
+  
+  - name: "openai_small"
+    provider: "openai"
+    config:
+      model_name: "text-embedding-3-small"
+      api_key: "${OPENAI_API_KEY}"  # Carregado do .env automaticamente
+      batch_size: 100
+      normalize: true
+      max_retries: 3
+  
+  - name: "openai_large"
+    provider: "openai"
+    config:
+      model_name: "text-embedding-3-large"
+      api_key: "${OPENAI_API_KEY}"  # Carregado do .env automaticamente
+      batch_size: 100
+      normalize: true
+      max_retries: 3
+
+# Configuracao de metricas
+metrics:
+  k_values: [1, 3, 5, 10]
+  # Lista de metricas a calcular (podem ser adicionadas novas)
+  metric_names:
+    - "ir"      # Metricas classicas de IR
+    - "votes"   # Metricas de votos no top-k
+
+# Configuracao de ranking
+ranking:
+  group_cols: ["contest_number", "context_prompt_url"]
+  rank_col: "rank_in_prompt"
+  anchor_rank: 1  # Rank da ancora (top-1)
+
+# Configuracao de saida
+output:
+  results_dir: "results"
+  save_detailed: true  # Salvar DataFrame detalhado (parquet)
+  save_summary: true   # Salvar summary macro (CSV e Excel)
+  save_summary_excel: true  # Salvar summary tambem em Excel

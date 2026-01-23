@@ -1,0 +1,47 @@
+# Dependencias para MODELL_AI_EVALUATION_TASKS_DRAFT_BASELINES.ipynb
+# Instalacao: pip install -r requirements.txt
+
+# Bibliotecas principais
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Bibliotecas de avaliacao
+ranx>=0.3.0
+deepeval>=0.18.0
+
+# Bibliotecas para embeddings e ML
+sentence-transformers>=2.2.0
+torch>=2.0.0
+
+# Providers de embedding (opcionais - instale conforme necessario)
+openai>=1.0.0  # Para OpenAIProvider
+tenacity>=8.0.0  # Para retry/backoff no OpenAIProvider
+# cohere>=4.0.0  # Para CohereProvider (descomente se usar)
+# anthropic>=0.3.0  # Para AnthropicProvider (descomente se usar)
+
+# Configuracao e YAML
+pyyaml>=6.0.0
+python-dotenv>=1.0.0  # Para carregar variaveis de ambiente de arquivos .env
+
+# Bibliotecas auxiliares (geralmente instaladas automaticamente)
+scipy>=1.8.0
+scikit-learn>=1.0.0
+matplotlib>=3.4.0
+seaborn>=0.12.0
+tqdm>=4.66.0
+
+# Para processamento de dados
+beautifulsoup4>=4.4.1
+lxml>=4.5.2
+requests>=2.31.0
+
+# Para salvar em Excel
+openpyxl>=3.1.0
+
+# Para ambiente Jupyter (se executar localmente)
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Para testes (opcional)
+pytest>=7.0.0
+pytest-cov>=4.0.0
