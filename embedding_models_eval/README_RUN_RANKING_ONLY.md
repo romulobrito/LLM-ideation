@@ -1,8 +1,8 @@
-# Run Ranking Only: Ranking por Ancora
+# Run Ranking Only: Ranking por Ancora + Metricas @k
 
 ## Objetivo
 
-Este script executa o pipeline **ate o ranking por ancora**: apos carregar o dataset e gerar embeddings, calcula o **ranking por similaridade com ancora** (top-1 por prompt) e salva os outputs pertinentes.
+Este script executa o pipeline **completo ate metricas @k**: apos carregar o dataset, gera embeddings, calcula o **ranking por similaridade com ancora** (top-1 por prompt), e avalia o ranking previsto vs gold com **metricas IR @k** (MAP@k, P@k, R@k, F1@k).
 
 ## O que e executado
 
@@ -11,7 +11,10 @@ Este script executa o pipeline **ate o ranking por ancora**: apos carregar o dat
    - Cria o provider de embeddings.
    - Chama `build_anchor_ranking(df, provider, ...)` (modulo `ranking/`).
    - Gera o DataFrame com colunas: `prompt_id`, `doc_id`, `score_to_anchor`, `rank_pred`, `rank_gold`.
-3. **Saida**: um Parquet por modelo + um CSV de resumo (opcional).
+3. **Calculo de metricas IR @k**:
+   - Compara `rank_pred` vs `rank_gold` usando a biblioteca `ranx`.
+   - Calcula P@k, R@k, F1@k, MAP@k para k em [1, 3, 5, 10] (configuravel).
+4. **Saida**: Parquet por modelo + CSV de metricas por prompt + CSV de resumo com metricas macro.
 
 ## Requisitos
 
@@ -67,19 +70,24 @@ python run_ranking_only.py --config configs/default.yaml --output-dir results/ra
 
 - **Diretorio**: por padrao `results/ranking_only/` (ou o indicado em `--output-dir`).
 
-- **Por modelo**: um arquivo Parquet com o DataFrame completo apos ranking:
+- **Por modelo - Ranking**: arquivo Parquet com o DataFrame completo apos ranking:
   - `{modelo}_scored.parquet`
   - Colunas minimas: `prompt_id`, `doc_id`, `score_to_anchor`, `rank_pred`, `rank_gold`.
   - Inclui tambem as colunas originais do dataset para rastreabilidade.
 
-- **Resumo**: `ranking_summary.csv` com uma linha por modelo:
-  - `modelo`, `n_linhas`, `n_prompts`, `score_to_anchor_min`, `score_to_anchor_mean`, `score_to_anchor_max`.
+- **Por modelo - Metricas**: arquivo CSV com metricas por prompt:
+  - `{modelo}_metrics_per_prompt.csv`
+  - Colunas: `prompt_id`, `P@1`, `R@1`, `F1@1`, `AP@1`, `P@3`, `R@3`, ... (para cada k).
+
+- **Resumo macro**: `ranking_summary.csv` com uma linha por modelo:
+  - `modelo`, `n_linhas`, `n_prompts`, `score_to_anchor_min`, `score_to_anchor_mean`, `score_to_anchor_max`
+  - `MAP@1`, `MAP@3`, `MAP@5`, `MAP@10` (metricas agregadas).
 
 ## Exemplo de saida no terminal
 
 ```
 ======================================================================
-PIPELINE ATE RANKING POR ANCORA
+PIPELINE COMPLETO: RANKING POR ANCORA + METRICAS @k
 ======================================================================
 
 1. CARREGANDO DADOS REAIS
@@ -91,7 +99,16 @@ PIPELINE ATE RANKING POR ANCORA
    OK: 354 linhas
    Salvo: results/ranking_only/minilm_scored.parquet
 ...
-RESUMO
+
+3. CALCULANDO METRICAS IR @k
+   Valores de k: [1, 3, 5, 10]
+
+   [minilm] Calculando metricas...
+   [minilm] MAP@1=0.4523, MAP@3=0.5012, MAP@5=0.5234, MAP@10=0.5456
+   [minilm] Metricas por prompt salvas: results/ranking_only/minilm_metrics_per_prompt.csv
+...
+
+RESUMO FINAL
 Modelos processados: 8/8
 Saida: results/ranking_only
    Resumo salvo: results/ranking_only/ranking_summary.csv
@@ -100,5 +117,5 @@ CONCLUIDO
 
 ## Relacao com outros scripts
 
-- **run_embeddings_only.py**: para apos gerar embeddings; nao chama ranking.
-- **run_ranking_only.py**: para apos ranking por ancora; nao chama metricas.
+- **run_embeddings_only.py**: para apos gerar embeddings; nao chama ranking nem metricas.
+- **run_ranking_only.py**: pipeline completo ate metricas @k (ranking + avaliacao IR).

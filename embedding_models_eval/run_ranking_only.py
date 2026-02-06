@@ -1,11 +1,12 @@
 """
-Executa o pipeline ate ranking por ancora (run_ranking_only), sem metricas @k.
+Executa o pipeline completo ate metricas @k (ranking por ancora + avaliacao IR).
 
 Este script:
 1. Carrega dados reais (saida_final.json)
 2. Para cada modelo: gera embeddings e calcula ranking por similaridade com ancora
 3. Salva df_scored (prompt_id, doc_id, score_to_anchor, rank_pred, rank_gold) em Parquet
-4. Para por ai (sem metricas IR/votos, sem tabela macro)
+4. Calcula metricas IR @k (MAP@k, P@k, R@k, F1@k) comparando rank_pred vs rank_gold
+5. Salva resumo com metricas macro por modelo
 """
 
 import sys
@@ -101,21 +102,70 @@ def process_single_model_ranking(df, text_col, model_config, ranking_config, sav
         return None
 
 
-def save_summary(resultados, output_dir):
-    """Salva resumo por modelo (estatisticas de score_to_anchor e contagens)."""
+def compute_ir_metrics(df_scored, k_values=None, verbose=True):
+    """
+    Calcula metricas IR @k para um DataFrame com ranking.
+    
+    Args:
+        df_scored: DataFrame com colunas rank_pred, rank_gold, prompt_id, doc_id
+        k_values: Lista de valores k para metricas @k (default: [1, 3, 5, 10])
+        verbose: Mostrar progresso
+        
+    Returns:
+        Dict com "per_prompt" (DataFrame) e "macro" (dict com MAP@k, etc.)
+    """
+    from metrics import IRMetrics
+    
+    if k_values is None:
+        k_values = [1, 3, 5, 10]
+    
+    # Filtra apenas candidatos (exclui ancora, que tem rank_pred NaN)
+    df_cand = df_scored[df_scored["rank_pred"].notna()].copy()
+    
+    if df_cand.empty:
+        if verbose:
+            print("   Nenhum candidato para calcular metricas")
+        return {"per_prompt": pd.DataFrame(), "macro": {}}
+    
+    ir_metrics = IRMetrics(k_values=k_values)
+    results = ir_metrics.compute(
+        df_cand,
+        rank_pred_col="rank_pred",
+        rank_gold_col="rank_gold",
+        prompt_id_col="prompt_id",
+        doc_id_col="doc_id",
+    )
+    
+    return results
+
+
+def save_summary(resultados, metricas_por_modelo, output_dir, k_values=None):
+    """Salva resumo por modelo (estatisticas de score_to_anchor, contagens e metricas @k)."""
+    if k_values is None:
+        k_values = [1, 3, 5, 10]
+    
     rows = []
     for model_name, df_scored in resultados.items():
         if df_scored is None or df_scored.empty:
             continue
         s = df_scored["score_to_anchor"].dropna()
-        rows.append({
+        row = {
             "modelo": model_name,
             "n_linhas": len(df_scored),
             "n_prompts": df_scored["prompt_id"].nunique(),
             "score_to_anchor_min": s.min() if len(s) else None,
             "score_to_anchor_mean": s.mean() if len(s) else None,
             "score_to_anchor_max": s.max() if len(s) else None,
-        })
+        }
+        
+        # Adiciona metricas @k se disponiveis
+        if model_name in metricas_por_modelo:
+            macro = metricas_por_modelo[model_name].get("macro", {})
+            for k in k_values:
+                row[f"MAP@{k}"] = macro.get(f"MAP@{k}", None)
+        
+        rows.append(row)
+    
     if not rows:
         return
     summary = pd.DataFrame(rows)
@@ -128,7 +178,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Executa pipeline ate ranking por ancora (run_ranking_only), sem metricas."
+        description="Executa pipeline completo: ranking por ancora + metricas IR @k."
     )
     parser.add_argument(
         "--config",
@@ -164,11 +214,11 @@ def main():
 
     print()
     print("=" * 70)
-    print("PIPELINE ATE RANKING POR ANCORA")
+    print("PIPELINE COMPLETO: RANKING POR ANCORA + METRICAS @k")
     print("=" * 70)
     print()
-    print("Fluxo: carrega dados -> por modelo: embeddings + build_anchor_ranking")
-    print("Saida: Parquet por modelo (prompt_id, doc_id, score_to_anchor, rank_pred, rank_gold)")
+    print("Fluxo: carrega dados -> por modelo: embeddings + ranking + metricas IR @k")
+    print("Saida: Parquet por modelo + resumo com MAP@k")
     print()
 
     df, text_col, config = load_real_data(args.config)
@@ -204,15 +254,49 @@ def main():
             print(f"   OK: {len(df_scored):,} linhas")
         print()
 
+    # Calcula metricas IR @k para cada modelo
+    k_values = ranking_config.get("k_values", [1, 3, 5, 10])
+    
+    print("=" * 70)
+    print("3. CALCULANDO METRICAS IR @k")
+    print("=" * 70)
+    print()
+    print(f"   Valores de k: {k_values}")
+    print()
+    
+    metricas_por_modelo = {}
+    for model_name, df_scored in resultados.items():
+        if df_scored is None or df_scored.empty:
+            continue
+        if args.verbose:
+            print(f"   [{model_name}] Calculando metricas...")
+        metrics_result = compute_ir_metrics(df_scored, k_values=k_values, verbose=args.verbose)
+        metricas_por_modelo[model_name] = metrics_result
+        
+        # Mostra metricas macro
+        macro = metrics_result.get("macro", {})
+        if macro and args.verbose:
+            macro_str = ", ".join([f"{k}={v:.4f}" for k, v in macro.items()])
+            print(f"   [{model_name}] {macro_str}")
+        
+        # Salva metricas por prompt (opcional)
+        per_prompt = metrics_result.get("per_prompt")
+        if per_prompt is not None and not per_prompt.empty:
+            metrics_path = Path(args.output_dir) / f"{model_name}_metrics_per_prompt.csv"
+            per_prompt.to_csv(metrics_path, index=False)
+            if args.verbose:
+                print(f"   [{model_name}] Metricas por prompt salvas: {metrics_path}")
+        print()
+
     n_ok = sum(1 for v in resultados.values() if v is not None)
     print("=" * 70)
-    print("RESUMO")
+    print("RESUMO FINAL")
     print("=" * 70)
     print()
     print(f"Modelos processados: {n_ok}/{len(models_config)}")
     print(f"Saida: {args.output_dir}")
     print()
-    save_summary(resultados, args.output_dir)
+    save_summary(resultados, metricas_por_modelo, args.output_dir, k_values=k_values)
     print()
     print("=" * 70)
     print("CONCLUIDO")
