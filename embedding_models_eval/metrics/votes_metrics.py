@@ -95,14 +95,22 @@ class VotesMetrics(Metric):
             k_df = pd.DataFrame(k_results)
             results_per_prompt.append(k_df)
             
-            # Macro (media)
+            # Macro: media e desvio padrao sobre prompts
             if not k_df.empty:
-                macro_results[f"mean_votes@{k}_pred"] = k_df[f"mean_votes@{k}_pred"].mean()
-                macro_results[f"max_votes@{k}_pred"] = k_df[f"max_votes@{k}_pred"].mean()
-                macro_results[f"mean_votes@{k}_gold"] = k_df[f"mean_votes@{k}_gold"].mean()
-                macro_results[f"max_votes@{k}_gold"] = k_df[f"max_votes@{k}_gold"].mean()
-                macro_results[f"norm_mean_votes@{k}"] = k_df[f"norm_mean_votes@{k}"].mean()
-                macro_results[f"norm_max_votes@{k}"] = k_df[f"norm_max_votes@{k}"].mean()
+                n = len(k_df)
+                for col_suffix in [
+                    f"mean_votes@{k}_pred",
+                    f"max_votes@{k}_pred",
+                    f"mean_votes@{k}_gold",
+                    f"max_votes@{k}_gold",
+                    f"norm_mean_votes@{k}",
+                    f"norm_max_votes@{k}",
+                ]:
+                    vals = k_df[col_suffix].dropna()
+                    macro_results[col_suffix] = float(vals.mean()) if len(vals) else 0.0
+                    macro_results[f"{col_suffix}_std"] = (
+                        float(vals.std(ddof=1)) if len(vals) > 1 else 0.0
+                    )
         
         # Combina todos os k
         all_per_prompt = results_per_prompt[0].copy()
