@@ -1,12 +1,13 @@
 """
-Executa o pipeline completo ate metricas @k (ranking por ancora + avaliacao IR).
+Executa o pipeline completo ate metricas @k (ranking por ancora + avaliacao IR + votos).
 
 Este script:
 1. Carrega dados reais (saida_final.json)
 2. Para cada modelo: gera embeddings e calcula ranking por similaridade com ancora
 3. Salva df_scored (prompt_id, doc_id, score_to_anchor, rank_pred, rank_gold) em Parquet
-4. Calcula metricas IR @k (MAP@k, P@k, R@k, F1@k) comparando rank_pred vs rank_gold
-5. Salva resumo com metricas macro por modelo
+4. Calcula metricas IR @k (MAP@k, P@k, R@k, F1@k) por prompt, com media e desvio padrao
+5. Calcula metricas de votos (mean_votes@k, norm_mean_votes@k) por prompt
+6. Salva resumo com metricas macro por modelo
 """
 
 import sys
@@ -105,28 +106,28 @@ def process_single_model_ranking(df, text_col, model_config, ranking_config, sav
 def compute_ir_metrics(df_scored, k_values=None, verbose=True):
     """
     Calcula metricas IR @k para um DataFrame com ranking.
-    
+
     Args:
         df_scored: DataFrame com colunas rank_pred, rank_gold, prompt_id, doc_id
         k_values: Lista de valores k para metricas @k (default: [1, 3, 5, 10])
         verbose: Mostrar progresso
-        
+
     Returns:
-        Dict com "per_prompt" (DataFrame) e "macro" (dict com MAP@k, etc.)
+        Dict com "per_prompt" (DataFrame) e "macro" (dict com media/std por metrica)
     """
     from metrics import IRMetrics
-    
+
     if k_values is None:
         k_values = [1, 3, 5, 10]
-    
+
     # Filtra apenas candidatos (exclui ancora, que tem rank_pred NaN)
     df_cand = df_scored[df_scored["rank_pred"].notna()].copy()
-    
+
     if df_cand.empty:
         if verbose:
-            print("   Nenhum candidato para calcular metricas")
+            print("   Nenhum candidato para calcular metricas IR")
         return {"per_prompt": pd.DataFrame(), "macro": {}}
-    
+
     ir_metrics = IRMetrics(k_values=k_values)
     results = ir_metrics.compute(
         df_cand,
@@ -135,15 +136,58 @@ def compute_ir_metrics(df_scored, k_values=None, verbose=True):
         prompt_id_col="prompt_id",
         doc_id_col="doc_id",
     )
-    
+
     return results
 
 
-def save_summary(resultados, metricas_por_modelo, output_dir, k_values=None):
-    """Salva resumo por modelo (estatisticas de score_to_anchor, contagens e metricas @k)."""
+def compute_votes_metrics(df_scored, k_values=None, votes_col="likes", verbose=True):
+    """
+    Calcula metricas de votos (likes) no top-k previsto vs gold.
+
+    Args:
+        df_scored: DataFrame com colunas rank_pred, rank_gold, prompt_id, likes
+        k_values: Lista de valores k (default: [1, 3, 5, 10])
+        votes_col: Coluna com votos/likes
+        verbose: Mostrar progresso
+
+    Returns:
+        Dict com "per_prompt" (DataFrame) e "macro" (dict com media/std)
+    """
+    from metrics import VotesMetrics
+
     if k_values is None:
         k_values = [1, 3, 5, 10]
-    
+
+    # Filtra apenas candidatos (exclui ancora)
+    df_cand = df_scored[df_scored["rank_pred"].notna()].copy()
+
+    if df_cand.empty or votes_col not in df_cand.columns:
+        if verbose:
+            col_msg = f"coluna '{votes_col}' ausente" if votes_col not in df_scored.columns else "nenhum candidato"
+            print(f"   Nenhuma metrica de votos calculada ({col_msg})")
+        return {"per_prompt": pd.DataFrame(), "macro": {}}
+
+    votes_metrics = VotesMetrics(k_values=k_values, votes_col=votes_col)
+    results = votes_metrics.compute(
+        df_cand,
+        rank_pred_col="rank_pred",
+        rank_gold_col="rank_gold",
+        prompt_id_col="prompt_id",
+    )
+
+    return results
+
+
+def save_summary(resultados, ir_por_modelo, votes_por_modelo, output_dir, k_values=None):
+    """
+    Salva resumo por modelo com:
+    - Estatisticas de score_to_anchor
+    - Metricas IR @k (media e desvio padrao)
+    - Metricas de votos @k (media e desvio padrao)
+    """
+    if k_values is None:
+        k_values = [1, 3, 5, 10]
+
     rows = []
     for model_name, df_scored in resultados.items():
         if df_scored is None or df_scored.empty:
@@ -157,15 +201,26 @@ def save_summary(resultados, metricas_por_modelo, output_dir, k_values=None):
             "score_to_anchor_mean": s.mean() if len(s) else None,
             "score_to_anchor_max": s.max() if len(s) else None,
         }
-        
-        # Adiciona metricas @k se disponiveis
-        if model_name in metricas_por_modelo:
-            macro = metricas_por_modelo[model_name].get("macro", {})
+
+        # Metricas IR @k (media e desvio padrao)
+        if model_name in ir_por_modelo:
+            macro = ir_por_modelo[model_name].get("macro", {})
             for k in k_values:
                 row[f"MAP@{k}"] = macro.get(f"MAP@{k}", None)
-        
+                for m in ["P", "R", "F1"]:
+                    row[f"{m}@{k}_mean"] = macro.get(f"{m}@{k}_mean", None)
+                    row[f"{m}@{k}_std"] = macro.get(f"{m}@{k}_std", None)
+
+        # Metricas de votos @k
+        if model_name in votes_por_modelo:
+            macro_v = votes_por_modelo[model_name].get("macro", {})
+            for k in k_values:
+                row[f"mean_votes@{k}_pred"] = macro_v.get(f"mean_votes@{k}_pred", None)
+                row[f"mean_votes@{k}_gold"] = macro_v.get(f"mean_votes@{k}_gold", None)
+                row[f"norm_mean_votes@{k}"] = macro_v.get(f"norm_mean_votes@{k}", None)
+
         rows.append(row)
-    
+
     if not rows:
         return
     summary = pd.DataFrame(rows)
@@ -254,36 +309,78 @@ def main():
             print(f"   OK: {len(df_scored):,} linhas")
         print()
 
-    # Calcula metricas IR @k para cada modelo
+    # Calcula metricas IR @k e Votes @k para cada modelo
     k_values = ranking_config.get("k_values", [1, 3, 5, 10])
-    
+    votes_col = ranking_config.get("votes_col", "likes")
+
     print("=" * 70)
-    print("3. CALCULANDO METRICAS IR @k")
+    print("3. CALCULANDO METRICAS IR @k + VOTOS @k")
     print("=" * 70)
     print()
     print(f"   Valores de k: {k_values}")
+    print(f"   Coluna de votos: {votes_col}")
     print()
-    
-    metricas_por_modelo = {}
+
+    ir_por_modelo = {}
+    votes_por_modelo = {}
+
     for model_name, df_scored in resultados.items():
         if df_scored is None or df_scored.empty:
             continue
         if args.verbose:
-            print(f"   [{model_name}] Calculando metricas...")
-        metrics_result = compute_ir_metrics(df_scored, k_values=k_values, verbose=args.verbose)
-        metricas_por_modelo[model_name] = metrics_result
-        
-        # Mostra metricas macro
-        macro = metrics_result.get("macro", {})
-        if macro and args.verbose:
-            macro_str = ", ".join([f"{k}={v:.4f}" for k, v in macro.items()])
-            print(f"   [{model_name}] {macro_str}")
-        
-        # Salva metricas por prompt (opcional)
-        per_prompt = metrics_result.get("per_prompt")
-        if per_prompt is not None and not per_prompt.empty:
+            print(f"   [{model_name}] Calculando metricas IR...")
+
+        # -- Metricas IR --
+        ir_result = compute_ir_metrics(df_scored, k_values=k_values, verbose=args.verbose)
+        ir_por_modelo[model_name] = ir_result
+
+        macro_ir = ir_result.get("macro", {})
+        if macro_ir and args.verbose:
+            # Exibe media +/- std para as metricas principais @5
+            parts = []
+            for m in ["P@5", "R@5", "F1@5"]:
+                mean_val = macro_ir.get(f"{m}_mean", 0.0)
+                std_val = macro_ir.get(f"{m}_std", 0.0)
+                parts.append(f"{m}={mean_val:.4f}+/-{std_val:.4f}")
+            map5 = macro_ir.get("MAP@5", 0.0)
+            parts.append(f"MAP@5={map5:.4f}")
+            print(f"   [{model_name}] {', '.join(parts)}")
+
+        # -- Metricas de Votos --
+        if args.verbose:
+            print(f"   [{model_name}] Calculando metricas de votos...")
+
+        votes_result = compute_votes_metrics(
+            df_scored, k_values=k_values, votes_col=votes_col, verbose=args.verbose,
+        )
+        votes_por_modelo[model_name] = votes_result
+
+        macro_v = votes_result.get("macro", {})
+        if macro_v and args.verbose:
+            parts_v = []
+            for k in [5]:
+                pred_val = macro_v.get(f"mean_votes@{k}_pred", 0.0)
+                gold_val = macro_v.get(f"mean_votes@{k}_gold", 0.0)
+                norm_val = macro_v.get(f"norm_mean_votes@{k}", 0.0)
+                parts_v.append(f"votes_pred@{k}={pred_val:.2f}")
+                parts_v.append(f"votes_gold@{k}={gold_val:.2f}")
+                parts_v.append(f"norm@{k}={norm_val:.4f}")
+            print(f"   [{model_name}] {', '.join(parts_v)}")
+
+        # Salva metricas por prompt (IR)
+        per_prompt_ir = ir_result.get("per_prompt")
+        if per_prompt_ir is not None and not per_prompt_ir.empty:
+            # Junta com metricas de votos por prompt se disponivel
+            per_prompt_votes = votes_result.get("per_prompt")
+            if per_prompt_votes is not None and not per_prompt_votes.empty:
+                per_prompt_merged = per_prompt_ir.merge(
+                    per_prompt_votes, on="prompt_id", how="left",
+                )
+            else:
+                per_prompt_merged = per_prompt_ir
+
             metrics_path = Path(args.output_dir) / f"{model_name}_metrics_per_prompt.csv"
-            per_prompt.to_csv(metrics_path, index=False)
+            per_prompt_merged.to_csv(metrics_path, index=False)
             if args.verbose:
                 print(f"   [{model_name}] Metricas por prompt salvas: {metrics_path}")
         print()
@@ -296,7 +393,7 @@ def main():
     print(f"Modelos processados: {n_ok}/{len(models_config)}")
     print(f"Saida: {args.output_dir}")
     print()
-    save_summary(resultados, metricas_por_modelo, args.output_dir, k_values=k_values)
+    save_summary(resultados, ir_por_modelo, votes_por_modelo, args.output_dir, k_values=k_values)
     print()
     print("=" * 70)
     print("CONCLUIDO")
