@@ -176,6 +176,49 @@ Tudo abaixo é criado por `save_artifacts` quando as flags em `output` do YAML e
 
 O `<nome_do_modelo>` é o campo `name` de cada entrada em `models` no YAML (ex.: `minilm`, `openai_small`). Extras (`pipeline_extras`) gravam CSVs, pastas TF-IDF e figuras em subpastas dentro ou ao lado de `results_dir`; ver `configs/default.yaml` e a legenda do fluxograma acima.
 
+## Orquestração em múltiplas execuções (Open WebUI, jobs)
+
+Este pacote implementa **somente a primeira etapa** de um pipeline que o grupo pode montar em ferramentas externas:
+
+1. **Execução 1 (este pacote):** embeddings, ranking por âncora, métricas e artefatos em `output.results_dir`.
+2. **Execução 2 (fora deste pacote):** outro script ou tool (ex.: LLM juiz) que gera **outro ranking** ou scores sobre os mesmos itens.
+3. **Execução 3 (fora deste pacote):** código que **combina** as duas saídas (média de posições, pesos, RRF, etc.).
+
+São **três execuções distintas** encadeadas pelo orquestrador; o CLI `embedding-eval` e o YAML continuam válidos e **não** embutem juiz nem fusão.
+
+### Contrato de saída (v1) para as etapas seguintes
+
+Nos arquivos `<nome_do_modelo>_detalhado.parquet` e `<nome_do_modelo>_detalhado.json` (quando `save_detailed` / `save_detailed_json` estão ativos), cada linha reflete o DataFrame após `build_anchor_ranking`. Colunas **estáveis** para alinhar com a saída do juiz e com a etapa de fusão:
+
+| Coluna | Papel |
+|--------|--------|
+| `prompt_id` | Identificador do prompt (derivado de `ranking.group_cols`). |
+| `doc_id` | Identificador do candidato (por padrão `story_url`, ou sintético se faltar URL). |
+| `rank_in_prompt` | Posição humana no grupo (gold bruto). |
+| `rank_gold` / `rank_pred` | Ranks na lógica por âncora (ver `ranking/anchor.py`). |
+| `score_to_anchor` | Similaridade (coseno) com o embedding da âncora. |
+
+A etapa do juiz deve publicar chaves de junção **compatíveis** (`prompt_id` e `doc_id`, ou convenção explícita com `story_url`) para o terceiro passo cruzar tabelas sem ambiguidade. Este documento marca o contrato como **v1**; evoluções futuras devem versionar se quebrarem colunas ou significados.
+
+### API aditiva: `run_experiment_from_config_dict`
+
+Quando o orquestrador monta a configuração em memória (sem gravar YAML), use a função exportada pelo pacote (mesma validação e mesmo pipeline que `load_config` + `run_experiment`):
+
+```python
+from embedding_models_eval.pipeline import run_experiment_from_config_dict
+
+result = run_experiment_from_config_dict(
+    config,
+    load_env=True,
+    verbose=True,
+    continue_on_error=True,
+)
+```
+
+Ordem interna: opcionalmente `load_env_robust` (mesmos caminhos de `.env` que `load_config`), substituição recursiva de `${VAR}` nas strings, `validate_config`, depois `run_experiment`. O dicionário `config` passado pelo chamador **não** é alterado. O retorno é a mesma estrutura retornada por `run_experiment` (artefatos, métricas macro, `per_prompt_metrics`, `pipeline_extras_report`).
+
+Para arquivo YAML em disco, continue usando `load_config` com caminho no disco e `run_experiment`, ou apenas `embedding-eval --config ...`.
+
 ## Ingestão do dataset (JSON)
 
 O pipeline carrega o arquivo indicado em **`dataset.path`** no YAML (caminho **relativo ao diretório de trabalho** de onde você roda o comando, ou caminho **absoluto**). Encoding esperado: **UTF-8**.
