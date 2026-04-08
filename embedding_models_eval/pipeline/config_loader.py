@@ -125,6 +125,10 @@ def validate_config(config: Dict) -> None:
     if "results_dir" not in config["output"]:
         raise ValueError("output.results_dir e obrigatorio")
 
+    pe = config.get("pipeline_extras")
+    if pe is not None and not isinstance(pe, dict):
+        raise ValueError("pipeline_extras deve ser um mapa (YAML mapping)")
+
 
 def load_config(config_path: str) -> Dict:
     """

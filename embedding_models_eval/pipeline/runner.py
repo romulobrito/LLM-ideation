@@ -19,6 +19,13 @@ from embeddings import get_provider
 from ranking import build_anchor_ranking
 from metrics import get_metric
 
+from .optional_steps import (
+    get_pipeline_extras,
+    extras_has_enabled_work,
+    validate_extras_for_visualizations,
+    run_optional_pipeline_steps,
+)
+
 
 def build_comparison_table(resultados_por_modelo: Dict[str, Dict]) -> pd.DataFrame:
     """
@@ -75,7 +82,8 @@ def save_artifacts(
         output_config: Configuracao de saida do YAML
         
     Returns:
-        Dict com paths dos artefatos salvos
+        Dict com paths: summary_csv, summary_excel, summary_json, detailed,
+        detailed_json (mapa modelo -> path)
     """
     results_dir = Path(output_config.get("results_dir", "results"))
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -83,7 +91,9 @@ def save_artifacts(
     artifacts = {
         "summary_csv": None,
         "summary_excel": None,
+        "summary_json": None,
         "detailed": {},
+        "detailed_json": {},
     }
     
     # Salva tabela comparativa macro
@@ -92,6 +102,18 @@ def save_artifacts(
         csv_path = results_dir / "comparacao_modelos_macro.csv"
         macro_metrics.to_csv(csv_path, index=False)
         artifacts["summary_csv"] = str(csv_path)
+        
+        # JSON (lista de registros, ASCII)
+        if output_config.get("save_summary_json", True):
+            json_path = results_dir / "comparacao_modelos_macro.json"
+            macro_metrics.to_json(
+                json_path,
+                orient="records",
+                indent=2,
+                force_ascii=True,
+                date_format="iso",
+            )
+            artifacts["summary_json"] = str(json_path)
         
         # Excel (se disponivel e configurado)
         if output_config.get("save_summary_excel", True):
@@ -108,12 +130,26 @@ def save_artifacts(
     
     # Salva DataFrames detalhados (por modelo)
     if output_config.get("save_detailed", True):
+        # Observacao: JSON detalhado pode ser muito maior em disco que Parquet.
+        # Para integracao via API costuma bastar comparacao_modelos_macro.json;
+        # gere detalhe sob demanda ou defina save_detailed_json: false no YAML.
+        save_json_detail = output_config.get("save_detailed_json", True)
         for modelo_name, resultados in resultados_por_modelo.items():
             df_scored = resultados.get("df_scored")
             if df_scored is not None and isinstance(df_scored, pd.DataFrame):
                 parquet_path = results_dir / f"{modelo_name}_detalhado.parquet"
                 df_scored.to_parquet(parquet_path, index=False)
                 artifacts["detailed"][modelo_name] = str(parquet_path)
+                if save_json_detail:
+                    json_detail_path = results_dir / f"{modelo_name}_detalhado.json"
+                    df_scored.to_json(
+                        json_detail_path,
+                        orient="records",
+                        indent=2,
+                        force_ascii=True,
+                        date_format="iso",
+                    )
+                    artifacts["detailed_json"][modelo_name] = str(json_detail_path)
     
     return artifacts
 
@@ -163,7 +199,9 @@ def run_experiment(
         Dict com:
         - per_prompt_metrics: {modelo: {metrica: DataFrame}}
         - macro_metrics: DataFrame comparativo
-        - artifacts: {summary_csv, summary_excel, detailed: {modelo: path}}
+        - artifacts: {summary_csv, summary_excel, summary_json, detailed,
+          detailed_json: {modelo: path}}
+        - pipeline_extras_report: relatorio das etapas opcionais (YAML pipeline_extras)
         
     Raises:
         ValueError: Se nenhum modelo foi processado com sucesso
@@ -173,6 +211,10 @@ def run_experiment(
         print("PIPELINE DE AVALIACAO DE EMBEDDINGS")
         print("=" * 70)
         print()
+
+    extras_validation = validate_extras_for_visualizations(get_pipeline_extras(config))
+    if extras_validation:
+        raise ValueError(extras_validation)
     
     # 1. Carregar dataset
     if verbose:
@@ -317,9 +359,31 @@ def run_experiment(
             print(f"✓ Tabela comparativa CSV: {artifacts['summary_csv']}")
         if artifacts["summary_excel"]:
             print(f"✓ Tabela comparativa Excel: {artifacts['summary_excel']}")
+        if artifacts["summary_json"]:
+            print(f"✓ Tabela comparativa JSON: {artifacts['summary_json']}")
         if artifacts["detailed"]:
             print(f"✓ DataFrames detalhados: {len(artifacts['detailed'])} modelos")
+        if artifacts["detailed_json"]:
+            print(f"✓ Detalhado JSON: {len(artifacts['detailed_json'])} modelos")
         print()
+    
+    pipeline_extras_report: Dict[str, Any] = {}
+    if extras_has_enabled_work(get_pipeline_extras(config)):
+        try:
+            pipeline_extras_report = run_optional_pipeline_steps(
+                df=df,
+                text_col=dataset_config.get("text_col", "extracted_idea_250"),
+                config=config,
+                resultados_por_modelo=resultados_por_modelo,
+                verbose=verbose,
+            )
+        except Exception as e:
+            if continue_on_error:
+                if verbose:
+                    print(f"AVISO pipeline_extras: {e}")
+                pipeline_extras_report = {"error": str(e)}
+            else:
+                raise
     
     # 5. Extrair metricas por prompt
     per_prompt_metrics = extract_per_prompt_metrics(resultados_por_modelo)
@@ -339,4 +403,5 @@ def run_experiment(
         "per_prompt_metrics": per_prompt_metrics,
         "macro_metrics": macro_metrics,
         "artifacts": artifacts,
+        "pipeline_extras_report": pipeline_extras_report,
     }

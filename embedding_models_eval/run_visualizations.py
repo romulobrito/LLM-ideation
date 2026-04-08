@@ -499,6 +499,85 @@ def plot_combined_panel(
     return fname
 
 
+def run_visualization_suite(
+    ranking_dir: str,
+    tfidf_dir: str,
+    output_dir: str,
+    n_bootstrap: int = 10000,
+    verbose: bool = True,
+) -> None:
+    """
+    Executa a suite completa de visualizacoes (para CLI ou pipeline integrado).
+
+    Args:
+        ranking_dir: Pasta com *_metrics_per_prompt.csv dos modelos de embedding.
+        tfidf_dir: Pasta com tfidf_metrics_per_prompt.csv (pode nao existir).
+        output_dir: Destino de PNGs e bootstrap_ci_table.csv.
+        n_bootstrap: Reamostras bootstrap.
+        verbose: Logs no stdout.
+    """
+    _print = print if verbose else (lambda *a, **k: None)
+
+    _print()
+    _print("=" * 70)
+    _print("VISUALIZACOES: BOXPLOTS + BOOTSTRAP CI")
+    _print("=" * 70)
+    _print()
+
+    _print("1. Carregando metricas por prompt...")
+    df = load_all_per_prompt(
+        ranking_dir=ranking_dir,
+        tfidf_dir=tfidf_dir,
+    )
+    _print()
+
+    _print("2. Gerando boxplots...")
+    plot_boxplots(df, output_dir=output_dir)
+    _print()
+
+    _print("3. Gerando violin plots...")
+    plot_violin(df, output_dir=output_dir)
+    _print()
+
+    _print("4. Gerando painel combinado...")
+    plot_combined_panel(df, output_dir=output_dir)
+    _print()
+
+    _print(f"5. Calculando bootstrap CI (n={n_bootstrap:,} reamostras)...")
+    ci_table = compute_bootstrap_table(
+        df,
+        n_bootstrap=n_bootstrap,
+    )
+
+    ci_path = Path(output_dir) / "bootstrap_ci_table.csv"
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    ci_table.to_csv(ci_path, index=False)
+    _print(f"   Tabela CI salva: {ci_path}")
+    _print()
+
+    _print("   Resumo Bootstrap 95% CI:")
+    _print("   " + "-" * 66)
+    for _, row in ci_table.iterrows():
+        label = row["model_label"]
+        metric = row["metric"]
+        mean = row["mean"]
+        lo = row["ci_lower"]
+        hi = row["ci_upper"]
+        _print(
+            f"   {label:>15s} | {metric:<25s} | {mean:.4f} [{lo:.4f}, {hi:.4f}]"
+        )
+    _print()
+
+    _print("6. Gerando forest plots (CI)...")
+    plot_bootstrap_ci(ci_table, output_dir=output_dir)
+    _print()
+
+    _print("=" * 70)
+    _print("CONCLUIDO (visualizacoes)")
+    _print("=" * 70)
+    _print()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -532,69 +611,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    print()
-    print("=" * 70)
-    print("VISUALIZACOES: BOXPLOTS + BOOTSTRAP CI")
-    print("=" * 70)
-    print()
-
-    # -- 1. Carregar dados --
-    print("1. Carregando metricas por prompt...")
-    df = load_all_per_prompt(
+    run_visualization_suite(
         ranking_dir=args.ranking_dir,
         tfidf_dir=args.tfidf_dir,
-    )
-    print()
-
-    # -- 2. Boxplots --
-    print("2. Gerando boxplots...")
-    plot_boxplots(df, output_dir=args.output_dir)
-    print()
-
-    # -- 3. Violin plots --
-    print("3. Gerando violin plots...")
-    plot_violin(df, output_dir=args.output_dir)
-    print()
-
-    # -- 4. Painel combinado --
-    print("4. Gerando painel combinado...")
-    plot_combined_panel(df, output_dir=args.output_dir)
-    print()
-
-    # -- 5. Bootstrap CI --
-    print(f"5. Calculando bootstrap CI (n={args.n_bootstrap:,} reamostras)...")
-    ci_table = compute_bootstrap_table(
-        df,
+        output_dir=args.output_dir,
         n_bootstrap=args.n_bootstrap,
+        verbose=True,
     )
-
-    ci_path = Path(args.output_dir) / "bootstrap_ci_table.csv"
-    ci_table.to_csv(ci_path, index=False)
-    print(f"   Tabela CI salva: {ci_path}")
-    print()
-
-    # Exibe resumo no terminal
-    print("   Resumo Bootstrap 95% CI:")
-    print("   " + "-" * 66)
-    for _, row in ci_table.iterrows():
-        label = row["model_label"]
-        metric = row["metric"]
-        mean = row["mean"]
-        lo = row["ci_lower"]
-        hi = row["ci_upper"]
-        print(f"   {label:>15s} | {metric:<25s} | {mean:.4f} [{lo:.4f}, {hi:.4f}]")
-    print()
-
-    # -- 6. Forest plots --
-    print("6. Gerando forest plots (CI)...")
-    plot_bootstrap_ci(ci_table, output_dir=args.output_dir)
-    print()
-
-    print("=" * 70)
-    print("CONCLUIDO")
-    print("=" * 70)
-    print()
-
     return 0
 
 

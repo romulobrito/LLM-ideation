@@ -1,5 +1,15 @@
-# Configuracao padrao para pipeline de avaliacao de embeddings
-# Permite testar diferentes modelos e metricas sem modificar codigo
+# Configuracao unificada para pipeline de avaliacao de embeddings.
+#
+# Modo leve (padrao abaixo): results_dir "results", pipeline_extras desligados.
+#
+# Modo completo (todos os modelos + TF-IDF + CSV per-prompt + visualizacoes/bootstrap):
+#   1) output.results_dir: use pasta dedicada, ex. "results/full_run_with_extras"
+#   2) pipeline_extras.save_per_prompt_metrics: true
+#   3) pipeline_extras.run_tfidf_baseline: true
+#   4) pipeline_extras.run_visualizations: true
+#   (run_visualizations exige save_per_prompt_metrics true; ajuste n_bootstrap se precisar)
+#
+# Sobrescrever saida sem editar YAML: python run_pipeline.py --output-dir <dir>
 
 # Configuracao do dataset
 dataset:
@@ -109,5 +119,30 @@ ranking:
 output:
   results_dir: "results"
   save_detailed: true  # Salvar DataFrame detalhado (parquet)
-  save_summary: true   # Salvar summary macro (CSV e Excel)
+  # JSON detalhado pode ficar muito maior que Parquet; para API use o macro ou desligue.
+  save_detailed_json: true  # true = tambem grava {modelo}_detalhado.json (alem do parquet)
+  save_summary: true   # Salvar summary macro (CSV, JSON e Excel)
+  save_summary_json: true  # Salvar comparacao macro em JSON (lista de registros)
   save_summary_excel: true  # Salvar summary tambem em Excel
+
+# Etapas opcionais (aditivas; padrao false = mesmo comportamento de antes)
+pipeline_extras:
+  # CSVs {modelo}_metrics_per_prompt.csv (compativel com run_visualizations)
+  save_per_prompt_metrics: false
+  # Caminho relativo ao cwd ou absoluto; se null, usa results_dir + subdir abaixo
+  per_prompt_metrics_dir: null
+  per_prompt_metrics_subdir: "ranking_only"
+
+  # Baseline TF-IDF (parquet + tfidf_metrics_per_prompt.csv + ranking_summary)
+  run_tfidf_baseline: false
+  tfidf_baseline_dir: null
+  tfidf_baseline_subdir: "tfidf_baseline"
+
+  # Boxplots, violin, bootstrap CI (exige save_per_prompt_metrics: true)
+  run_visualizations: false
+  visualizations_output_dir: null
+  visualizations_subdir: "visualizations"
+  # Se null, reutiliza os diretorios de export TF-IDF / per-prompt acima
+  visualizations_ranking_dir: null
+  visualizations_tfidf_dir: null
+  n_bootstrap: 10000

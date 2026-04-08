@@ -147,8 +147,25 @@ Exemplos:
                 print(f"  ✓ CSV: {resultados['artifacts']['summary_csv']}")
             if resultados["artifacts"]["summary_excel"]:
                 print(f"  ✓ Excel: {resultados['artifacts']['summary_excel']}")
+            if resultados["artifacts"]["summary_json"]:
+                print(f"  ✓ JSON macro: {resultados['artifacts']['summary_json']}")
             if resultados["artifacts"]["detailed"]:
                 print(f"  ✓ Parquet: {len(resultados['artifacts']['detailed'])} arquivos")
+            if resultados["artifacts"]["detailed_json"]:
+                n_json = len(resultados["artifacts"]["detailed_json"])
+                print(f"  ✓ JSON detalhado: {n_json} arquivos")
+            ext = resultados.get("pipeline_extras_report") or {}
+            if ext.get("per_prompt_metrics_paths"):
+                n_p = len(ext["per_prompt_metrics_paths"])
+                print(f"  Extr opcional: {n_p} CSV per-prompt (metricas por prompt)")
+            if ext.get("tfidf_output_dir"):
+                print(f"  Extr opcional TF-IDF: {ext['tfidf_output_dir']}")
+            if ext.get("visualizations_output_dir"):
+                print(f"  Extr opcional visualizacoes: {ext['visualizations_output_dir']}")
+            if ext.get("skipped_visualizations"):
+                print(f"  AVISO visualizacoes: {ext['skipped_visualizations']}")
+            if ext.get("error"):
+                print(f"  AVISO pipeline_extras: {ext['error']}")
             print()
         
         # Mostrar tabela comparativa se nao estiver em modo quiet
