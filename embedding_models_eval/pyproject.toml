@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "embedding-models-eval"
 version = "0.1.0"
 description = "Pipeline de avaliacao de embeddings e ranking por ancora (Labic)"
-readme = "README_RUN_EMBEDDINGS.md"
+readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Labic ICMC-USP" }]
 dependencies = [
