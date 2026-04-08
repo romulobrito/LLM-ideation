@@ -2,6 +2,45 @@
 
 Pipeline de avaliação de embeddings: ranking por âncora, métricas IR e de votos, saídas tabulares/JSON, etapas opcionais (TF-IDF, visualizações com bootstrap) via YAML.
 
+## Fluxo end to end (JSON até saída)
+
+O comando `embedding-eval` (ou `run_pipeline.py`) chama `run_experiment` em `embedding_models_eval.pipeline.runner`: primeiro carrega configuração e dataset; depois, para cada modelo, gera embeddings, ranqueia por âncora e calcula métricas; em seguida agrega, grava artefatos em `output.results_dir` e, se o YAML habilitar, executa `pipeline_extras`.
+
+**Ranking por âncora:** em cada grupo definido por `ranking.group_cols`, o texto do item com rank gold igual a `ranking.anchor_rank` (por padrão 1, alinhado a `rank_in_prompt`) é a **âncora**; os demais candidatos são ordenados por similaridade de embedding em relação a esse texto. Assim a avaliação mede se o modelo recupera a ordem humana quando a referência é o melhor item do prompt.
+
+```mermaid
+flowchart TD
+  subgraph ent[Entrada]
+    J["JSON UTF-8<br/>dataset.path"]
+    Y["YAML<br/>default.yaml + CLI"]
+  end
+  J --> LD["load_dataset<br/>JSONLoader"]
+  Y --> LC[load_config]
+  LC --> LD
+  LD --> DF["DataFrame<br/>text_col + rank gold"]
+  DF --> LP["Por modelo<br/>models"]
+  LP --> GP[get_provider]
+  GP --> BR["build_anchor_ranking<br/>embeddings"]
+  BR --> MC["Métricas<br/>IR + votos"]
+  MC --> LP
+  LP --> AG["build_comparison_table<br/>macro"]
+  AG --> SA[save_artifacts]
+  SA --> O1["macro<br/>.csv .json .xlsx"]
+  SA --> O2["por modelo<br/>.parquet .json"]
+  SA --> EX{"pipeline_extras?"}
+  EX -->|per_prompt| PP["CSV<br/>per-prompt"]
+  EX -->|tfidf| TF["TF-IDF<br/>baseline"]
+  EX -->|viz| VZ["Gráficos<br/>bootstrap"]
+  EX -->|nao| FIM[Fim]
+  PP --> FIM
+  TF --> FIM
+  VZ --> FIM
+```
+
+Legenda do diagrama: `per_prompt` = `save_per_prompt_metrics`, `tfidf` = `run_tfidf_baseline`, `viz` = `run_visualizations` no YAML; aresta `nao` = extras desligados.
+
+Detalhes de chaves JSON e colunas do DataFrame estão na seção **Ingestão do dataset** abaixo. A lista de arquivos gravados em `output.results_dir` está em **Artefatos principais** (seção **Parametrização e dados**).
+
 ## Requisitos
 
 - Python 3.10 ou superior
@@ -21,6 +60,13 @@ pip install -e .
 O comando acima instala **somente** as dependências **obrigatórias** declaradas em `pyproject.toml` (pandas, torch, sentence-transformers, openai, ranx, etc.), suficientes para rodar o pipeline principal e gerar artefatos (CSV, Parquet, JSON, métricas).
 
 Para incluir **extras**, veja a seção seguinte.
+
+### Primeira execução (checklist)
+
+1. Entrar na pasta `embedding_models_eval` do repositório (de onde o `pip install -e .` foi feito).
+2. Ativar o ambiente virtual (`.venv` ou outro) onde o pacote está instalado.
+3. Ajustar `dataset.path` no YAML (e demais chaves necessárias) para apontar para o seu JSON de entrada.
+4. Rodar o pipeline a partir dessa pasta, para que caminhos relativos do YAML batam com o diretório atual, por exemplo: `embedding-eval --config configs/default.yaml` (ou `--output-dir` se quiser outra pasta de resultados).
 
 ### Instalação direto do Git
 
@@ -115,6 +161,20 @@ PYTHONPATH=src python run_pipeline.py --config configs/default.yaml
 2. **Saída**: `output.results_dir` no YAML ou `--output-dir` na CLI.
 
 A seção `dataset` controla a **ingestão** (veja abaixo).
+
+### Artefatos principais (`output.results_dir`)
+
+Tudo abaixo é criado por `save_artifacts` quando as flags em `output` do YAML estão ativas (em `default.yaml` o resumo e o detalhado costumam vir `true`; ajuste `save_summary`, `save_detailed`, `save_summary_json`, `save_detailed_json`, `save_summary_excel`, etc., se quiser menos arquivos ou sem Excel).
+
+| Arquivo | Conteúdo |
+|----------|-----------|
+| `comparacao_modelos_macro.csv` | Tabela macro: uma linha por modelo, métricas IR (ex.: MAP@k) e de votos agregadas. |
+| `comparacao_modelos_macro.json` | Mesmo macro em JSON (registros). |
+| `comparacao_modelos_macro.xlsx` | Mesmo macro em Excel, se `openpyxl` estiver disponível. |
+| `<nome_do_modelo>_detalhado.parquet` | Por modelo da lista `models`: DataFrame com scores e colunas usadas na avaliação. |
+| `<nome_do_modelo>_detalhado.json` | Versão JSON do detalhado (pode ficar grande; há flag para desativar). |
+
+O `<nome_do_modelo>` é o campo `name` de cada entrada em `models` no YAML (ex.: `minilm`, `openai_small`). Extras (`pipeline_extras`) gravam CSVs, pastas TF-IDF e figuras em subpastas dentro ou ao lado de `results_dir`; ver `configs/default.yaml` e a legenda do fluxograma acima.
 
 ## Ingestão do dataset (JSON)
 
