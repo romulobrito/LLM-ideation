@@ -99,9 +99,9 @@ def run_tfidf_baseline_integrated(
 ) -> None:
     """
     Executa baseline TF-IDF e grava parquet, tfidf_metrics_per_prompt.csv, ranking_summary.
-    Reutiliza funcoes do modulo run_tfidf_baseline.
+    Reutiliza funcoes de embedding_models_eval.tfidf_baseline_runner.
     """
-    from run_tfidf_baseline import (
+    from embedding_models_eval.tfidf_baseline_runner import (
         build_tfidf_anchor_ranking,
         compute_ir_metrics,
         compute_votes_metrics,
@@ -171,8 +171,8 @@ def run_visualization_suite_integrated(
     n_bootstrap: int = 10000,
     verbose: bool = True,
 ) -> None:
-    """Wrapper lazy sobre run_visualizations.run_visualization_suite."""
-    import run_visualizations as viz_module
+    """Wrapper lazy sobre embedding_models_eval.visualization_suite."""
+    from embedding_models_eval import visualization_suite as viz_module
 
     viz_module.run_visualization_suite(
         ranking_dir=ranking_dir,

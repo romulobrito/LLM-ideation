@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import pandas as pd
 
-from data import load_dataset
-from embeddings import get_provider
-from ranking import build_anchor_ranking
-from metrics import get_metric
+from embedding_models_eval.data import load_dataset
+from embedding_models_eval.embeddings import get_provider
+from embedding_models_eval.ranking import build_anchor_ranking
+from embedding_models_eval.metrics import get_metric
 
 from .optional_steps import (
     get_pipeline_extras,

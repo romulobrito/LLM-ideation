@@ -10,6 +10,9 @@
 #   (run_visualizations exige save_per_prompt_metrics true; ajuste n_bootstrap se precisar)
 #
 # Sobrescrever saida sem editar YAML: python run_pipeline.py --output-dir <dir>
+#
+# Pacote Python: na raiz embedding_models_eval rode: pip install -e ".[viz]"
+# (comando embedding-eval no PATH do venv). Sem instalar: PYTHONPATH=src python run_pipeline.py
 
 # Configuracao do dataset
 dataset:

@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from embeddings.base import EmbeddingProvider
-from ranking.anchor import build_anchor_ranking
+from embedding_models_eval.embeddings.base import EmbeddingProvider
+from embedding_models_eval.ranking.anchor import build_anchor_ranking
 
 
 class FakeNormalizedProvider(EmbeddingProvider):

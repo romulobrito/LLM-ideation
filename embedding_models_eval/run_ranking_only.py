@@ -15,8 +15,6 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent))
-
 
 def load_real_data(config_path="configs/default.yaml"):
     """Carrega dados reais usando o loader do pipeline (mesmo padrao de run_embeddings_only)."""
@@ -26,8 +24,8 @@ def load_real_data(config_path="configs/default.yaml"):
     print()
 
     try:
-        from pipeline.config_loader import load_config
-        from data import get_loader
+        from embedding_models_eval.pipeline.config_loader import load_config
+        from embedding_models_eval.data import get_loader
 
         config = load_config(config_path)
         dataset_config = config.get("dataset", {})
@@ -66,8 +64,8 @@ def process_single_model_ranking(df, text_col, model_config, ranking_config, sav
     Para um modelo: cria provider, chama build_anchor_ranking, salva df_scored.
     Retorna (df_scored, None em caso de erro).
     """
-    from embeddings import get_provider
-    from ranking import build_anchor_ranking
+    from embedding_models_eval.embeddings import get_provider
+    from embedding_models_eval.ranking import build_anchor_ranking
 
     model_name = model_config.get("name", "unknown")
     if verbose:
@@ -115,7 +113,7 @@ def compute_ir_metrics(df_scored, k_values=None, verbose=True):
     Returns:
         Dict com "per_prompt" (DataFrame) e "macro" (dict com media/std por metrica)
     """
-    from metrics import IRMetrics
+    from embedding_models_eval.metrics import IRMetrics
 
     if k_values is None:
         k_values = [1, 3, 5, 10]
@@ -153,7 +151,7 @@ def compute_votes_metrics(df_scored, k_values=None, votes_col="likes", verbose=T
     Returns:
         Dict com "per_prompt" (DataFrame) e "macro" (dict com media/std)
     """
-    from metrics import VotesMetrics
+    from embedding_models_eval.metrics import VotesMetrics
 
     if k_values is None:
         k_values = [1, 3, 5, 10]

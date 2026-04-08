@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "embedding-models-eval"
+version = "0.1.0"
+description = "Pipeline de avaliacao de embeddings e ranking por ancora (Labic)"
+readme = "README_RUN_EMBEDDINGS.md"
+requires-python = ">=3.10"
+authors = [{ name = "Labic ICMC-USP" }]
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "pyyaml>=6.0.0",
+    "python-dotenv>=1.0.0",
+    "tqdm>=4.66.0",
+    "openpyxl>=3.1.0",
+    "scipy>=1.8.0",
+    "scikit-learn>=1.0.0",
+    "requests>=2.31.0",
+    "ranx>=0.3.0",
+    "sentence-transformers>=2.2.0",
+    "torch>=2.0.0",
+    "openai>=1.0.0",
+    "tenacity>=8.0.0",
+]
+
+[project.optional-dependencies]
+viz = ["matplotlib>=3.4.0", "seaborn>=0.12.0"]
+dev = ["pytest>=7.0.0", "pytest-cov>=4.0.0"]
+
+[project.scripts]
+embedding-eval = "embedding_models_eval.cli:main"
+embedding-viz = "embedding_models_eval.visualization_suite:main"
+embedding-tfidf = "embedding_models_eval.tfidf_baseline_runner:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -10,8 +10,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from pipeline import load_config
-from pipeline.runner import save_artifacts
+from embedding_models_eval.pipeline import load_config
+from embedding_models_eval.pipeline.runner import save_artifacts
 
 
 def _embedding_eval_root() -> Path:

@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 
-from embeddings.base import EmbeddingProvider
+from embedding_models_eval.embeddings.base import EmbeddingProvider
 
 
 def build_anchor_ranking(

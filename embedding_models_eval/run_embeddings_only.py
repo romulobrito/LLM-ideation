@@ -23,8 +23,6 @@ except ImportError:
         print(f"{desc}...")
         return iterable
 
-sys.path.insert(0, str(Path(__file__).parent))
-
 def load_real_data(config_path="configs/default.yaml"):
     """Carrega dados reais usando o loader do pipeline."""
     print("=" * 70)
@@ -33,8 +31,8 @@ def load_real_data(config_path="configs/default.yaml"):
     print()
     
     try:
-        from pipeline.config_loader import load_config
-        from data import get_loader
+        from embedding_models_eval.pipeline.config_loader import load_config
+        from embedding_models_eval.data import get_loader
         
         # Carrega configuracao (com substituicao de variaveis de ambiente)
         config = load_config(config_path)
@@ -76,7 +74,7 @@ def load_real_data(config_path="configs/default.yaml"):
 
 def generate_embeddings(df, text_col, model_config, verbose=True):
     """Gera embeddings para todos os textos usando um modelo."""
-    from embeddings import get_provider
+    from embedding_models_eval.embeddings import get_provider
     
     model_name = model_config.get("name", "unknown")
     provider_name = model_config.get("provider")

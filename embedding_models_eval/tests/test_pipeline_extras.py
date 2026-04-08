@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from pipeline.optional_steps import (
+from embedding_models_eval.pipeline.optional_steps import (
     extras_has_enabled_work,
     save_per_prompt_metrics_csvs,
     validate_extras_for_visualizations,
