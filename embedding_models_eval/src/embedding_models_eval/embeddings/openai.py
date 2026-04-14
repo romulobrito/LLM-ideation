@@ -37,8 +37,12 @@ class OpenAIProvider(EmbeddingProvider):
         
         if not self.api_key:
             raise ValueError("OpenAI API key nao fornecida (config ou OPENAI_API_KEY)")
-        
-        self.client = openai.OpenAI(api_key=self.api_key)
+
+        client_kw: Dict = {"api_key": self.api_key}
+        base_url = config.get("base_url")
+        if base_url:
+            client_kw["base_url"] = str(base_url).strip()
+        self.client = openai.OpenAI(**client_kw)
     
     @retry(
         stop=stop_after_attempt(3),

@@ -4,40 +4,63 @@ Pipeline de avaliação de embeddings: ranking por âncora, métricas IR e de vo
 
 ## Fluxo end to end (JSON até saída)
 
+O pacote expõe **dois fluxos** complementares (ambos aditivos): **(A)** avaliação completa `embedding-eval` com ranking por âncora e métricas; **(B)** ranking por **dissimilaridade** entre uma tarefa `T` e candidatas (`task-dissimilarity-rank`), descrito na seção **Ranking por dissimilaridade** (mais abaixo).
+
+**Relação entre A e B:** **não** é um fluxo B “dentro” de A. O caminho **B** não chama `run_experiment`, não usa `load_dataset` nem `build_anchor_ranking`, nem métricas IR/votos do pipeline de avaliação. Em **paralelo**, A e B **compartilham o mesmo motor de embeddings**: ambos instanciam provedores via `get_provider` (`sentence_transformers`, `openai`, mesma normalização L2 nos vetores). Ou seja: **cálculo e objetivo de ranking são diferentes**; só a **camada de modelo de embedding** (e dependências como `torch`/API) é reutilizada.
+
+### (A) Pipeline embedding-eval
+
 O comando `embedding-eval` (ou `run_pipeline.py`) chama `run_experiment` em `embedding_models_eval.pipeline.runner`: primeiro carrega configuração e dataset; depois, para cada modelo, gera embeddings, ranqueia por âncora e calcula métricas; em seguida agrega, grava artefatos em `output.results_dir` e, se o YAML habilitar, executa `pipeline_extras`.
 
 **Ranking por âncora:** em cada grupo definido por `ranking.group_cols`, o texto do item com rank gold igual a `ranking.anchor_rank` (por padrão 1, alinhado a `rank_in_prompt`) é a **âncora**; os demais candidatos são ordenados por similaridade de embedding em relação a esse texto. Assim a avaliação mede se o modelo recupera a ordem humana quando a referência é o melhor item do prompt.
 
+### (B) Ranking por dissimilaridade (tarefa vs historias)
+
+Entrada: JSON com `task_description` e `stories` (`story_id`, `story_text`). Config: YAML só com seção `embedding` (`configs/task_dissimilarity_*.yaml`). O fluxo faz parse, `get_provider`, embeddings de `T` e de cada historia, similaridade cosseno mapeada a [0,1], dissimilaridade, ordenacao (mais distante = melhor) e normalizacao min-max na saida. O JSON legado de concurso pode virar esse formato via `legacy-to-task-input` (seta tracejada).
+
 ```mermaid
 flowchart TD
-  subgraph ent[Entrada]
-    J["JSON UTF-8<br/>dataset.path"]
-    Y["YAML<br/>default.yaml + CLI"]
+  subgraph GA["A — embedding-eval"]
+    direction TB
+    subgraph ent[Entrada]
+      J["JSON UTF-8<br/>dataset.path"]
+      Y["YAML<br/>default.yaml + CLI"]
+    end
+    J --> LD["load_dataset<br/>JSONLoader"]
+    Y --> LC[load_config]
+    LC --> LD
+    LD --> DF["DataFrame<br/>text_col + rank gold"]
+    DF --> LP["Por modelo<br/>models"]
+    LP --> GP[get_provider]
+    GP --> BR["build_anchor_ranking<br/>embeddings"]
+    BR --> MC["Métricas<br/>IR + votos"]
+    MC --> LP
+    LP --> AG["build_comparison_table<br/>macro"]
+    AG --> SA[save_artifacts]
+    SA --> O1["macro<br/>.csv .json .xlsx"]
+    SA --> O2["por modelo<br/>.parquet .json"]
+    SA --> EX{"pipeline_extras?"}
+    EX -->|per_prompt| PP["CSV<br/>per-prompt"]
+    EX -->|tfidf| TF["TF-IDF<br/>baseline"]
+    EX -->|viz| VZ["Gráficos<br/>bootstrap"]
+    EX -->|nao| FIM[Fim A]
+    PP --> FIM
+    TF --> FIM
+    VZ --> FIM
   end
-  J --> LD["load_dataset<br/>JSONLoader"]
-  Y --> LC[load_config]
-  LC --> LD
-  LD --> DF["DataFrame<br/>text_col + rank gold"]
-  DF --> LP["Por modelo<br/>models"]
-  LP --> GP[get_provider]
-  GP --> BR["build_anchor_ranking<br/>embeddings"]
-  BR --> MC["Métricas<br/>IR + votos"]
-  MC --> LP
-  LP --> AG["build_comparison_table<br/>macro"]
-  AG --> SA[save_artifacts]
-  SA --> O1["macro<br/>.csv .json .xlsx"]
-  SA --> O2["por modelo<br/>.parquet .json"]
-  SA --> EX{"pipeline_extras?"}
-  EX -->|per_prompt| PP["CSV<br/>per-prompt"]
-  EX -->|tfidf| TF["TF-IDF<br/>baseline"]
-  EX -->|viz| VZ["Gráficos<br/>bootstrap"]
-  EX -->|nao| FIM[Fim]
-  PP --> FIM
-  TF --> FIM
-  VZ --> FIM
+
+  subgraph GB["B — task-dissimilarity-rank"]
+    direction TB
+    JT["JSON<br/>tarefa + stories"]
+    YT["YAML<br/>task_dissimilarity"]
+    LEG["legacy-to-task-input<br/>opcional"] -.-> JT
+    JT --> PR["parse + embed<br/>dissim + min-max"]
+    YT --> PR
+    PR --> JR["JSON<br/>ranking"]
+  end
 ```
 
-Legenda do diagrama: `per_prompt` = `save_per_prompt_metrics`, `tfidf` = `run_tfidf_baseline`, `viz` = `run_visualizations` no YAML; aresta `nao` = extras desligados.
+Legenda **A**: `per_prompt` = `save_per_prompt_metrics`, `tfidf` = `run_tfidf_baseline`, `viz` = `run_visualizations` no YAML; aresta `nao` = extras desligados. **B**: CLI `task-dissimilarity-rank` ou API em `task_dissimilarity`; detalhes em **Ranking por dissimilaridade**. Os dois blocos no diagrama são **independentes**; a única parte compartilhada em código é o uso de **`get_provider`** (nó conceitualmente alinhado ao `get_provider` de A, sem seta entre GA e GB).
 
 Detalhes de chaves JSON e colunas do DataFrame estão na seção **Ingestão do dataset** abaixo. A lista de arquivos gravados em `output.results_dir` está em **Artefatos principais** (seção **Parametrização e dados**).
 
@@ -259,6 +282,99 @@ Opções avançadas do loader JSON (se passadas na config do dataset) incluem `g
 
 Para o contrato exato de chaves JSON, veja `iter_rows` em `src/embedding_models_eval/data/json_loader.py`. Para um arquivo de exemplo, use o mesmo formato do `saida_final.json` do projeto (quando disponível no repositório).
 
+## Ranking por dissimilaridade (tarefa vs historias)
+
+Modulo **aditivo** (`task_dissimilarity`): ranqueia candidatas `h_i` pela **dissimilaridade de embedding** em relação a uma descrição de tarefa `T` (quanto mais **distante** de `T`, melhor o score). Não substitui o `embedding-eval` nem o ranking por âncora.
+
+**Pacote:** o mesmo projeto instalável **`embedding-models-eval`** (`pip install -e .` na pasta `embedding_models_eval`) publica os comandos `task-dissimilarity-rank` e `legacy-to-task-input` junto com o restante do pacote. Para a **tarefa de ranking por dissimilaridade**, o essencial é o subpacote `embedding_models_eval.task_dissimilarity`, os YAML em `configs/task_dissimilarity_*.yaml`, os exemplos em `tests/fixtures/` e os testes em `tests/test_task_dissimilarity_smoke.py` (rápidos, sem modelo real).
+
+### Arquivos de exemplo no repositório
+
+| O quê | Caminho |
+|-------|---------|
+| Entrada JSON mínima (2 histórias) | `tests/fixtures/task_rank_minimal_input.json` |
+| Saída JSON de exemplo (gerada com o YAML MiniLM a partir da entrada mínima) | `tests/fixtures/task_rank_minimal_output_example.json` |
+| Entrada derivada de `saida_final.json` (1 prompt, 6 histórias) | `tests/fixtures/task_from_saida_final_sample.json` |
+| YAML sentence-transformers | `configs/task_dissimilarity_sentence_transformers.yaml` |
+| YAML API remota (OpenAI / compatível) | `configs/task_dissimilarity_openai.yaml` |
+| CLI instalada pelo pacote | `task-dissimilarity-rank` (ver `pyproject.toml` → `project.scripts`) |
+
+Os números em `task_rank_minimal_output_example.json` podem mudar ligeiramente se a versão do modelo ou da biblioteca mudar; a **estrutura** das chaves deve permanecer estável.
+
+### Política de similaridade e normalização
+
+- Embeddings L2-normalizados pelo provider; **similaridade bruta** em [0, 1] como `(cos(theta) + 1) / 2` (cosseno em [-1, 1]).
+- **Dissimilaridade** = `1 - similaridade` (ambas em [0, 1]).
+- **Scores normalizados** no ranking: min-max das dissimilaridades no conjunto (melhor = 1, pior = 0). Empates desempatados por `story_id`.
+
+### YAML dedicado
+
+- `configs/task_dissimilarity_sentence_transformers.yaml` — modelo local/Hugging Face.
+- `configs/task_dissimilarity_openai.yaml` — API OpenAI ou compativel; opcional `base_url` (ex.: OpenRouter). Chave via `api_key_env` ou `embedding.api_key`.
+
+Seção obrigatória:
+
+```yaml
+embedding:
+  backend: sentence_transformers   # ou openai
+  model: <nome do modelo>
+  # openai: api_key_env, base_url opcional
+```
+
+### Entrada e saída JSON
+
+- **Entrada:** `task_description` (string) e `stories` (lista de `story_id`, `story_text`). Ver tabela **Arquivos de exemplo** acima.
+- **Saída:** `strategy`, `embedding_backend`, `embedding_model`, `ranking` com `raw_similarity`, `raw_dissimilarity`, `normalized_score`, `rank_position` — espelhado em `task_rank_minimal_output_example.json`.
+
+### Converter JSON legado (concurso) para o formato de tarefa
+
+Política padrão: `task_description` = titulo do prompt (`context_prompt_title`); `story_id` = `story_url` (ou id sintetico); texto = `extracted_idea_250` (ou coluna `--text-column`).
+
+```bash
+legacy-to-task-input --input saida_final.json --output-dir ./task_inputs --max-prompts 1 --max-stories 20
+```
+
+### CLI do ranking
+
+Comando exposto após `pip install -e .` (ou equivalente):
+
+```bash
+task-dissimilarity-rank --config configs/task_dissimilarity_sentence_transformers.yaml \
+  --input tests/fixtures/task_rank_minimal_input.json \
+  --output tests/fixtures/task_rank_minimal_output_example.json
+```
+
+Sem `--output`, o JSON é impresso no **stdout**. Alternativa: `python -m embedding_models_eval.task_dissimilarity.cli` com os mesmos argumentos.
+
+### API Python
+
+```python
+from embedding_models_eval.task_dissimilarity import (
+    load_task_embedding_yaml,
+    provider_from_task_config,
+    parse_task_rank_input,
+    rank_stories_by_task_dissimilarity,
+)
+import json
+cfg = load_task_embedding_yaml("configs/task_dissimilarity_sentence_transformers.yaml")
+provider, backend, model = provider_from_task_config(cfg)
+with open("tests/fixtures/task_rank_minimal_input.json") as f:
+    task, stories = parse_task_rank_input(json.load(f))
+out = rank_stories_by_task_dissimilarity(task, stories, provider, backend_label=backend, model_label=model)
+```
+
+### Testes (tarefa dissimilaridade)
+
+Apenas `tests/test_task_dissimilarity_smoke.py`: validação de entrada, YAML, conversão legacy sintética e ranking com **provider falso** (sem rede). Rode `pytest tests/test_task_dissimilarity_smoke.py`.
+
+### Limitações e pressupostos (tarefa dissimilaridade)
+
+- **Similaridade:** `raw_similarity` em [0, 1] vem de \((\cos\theta + 1) / 2\) sobre embeddings **L2-normalizados** pelo provider; não é o cosseno bruto em [-1, 1].
+- **YAML vs enunciado:** usamos `backend: openai` (API remota) ou `backend: sentence_transformers`; OpenRouter ou bases compatíveis via `base_url` sob `openai`, não há chave literal `backend: provider` nem `provider: openrouter`.
+- **Saída:** `embedding_backend` é `openai` ou `sentence_transformers`, não o rótulo genérico `provider` do exemplo da especificação.
+- **Infra:** primeira execução com modelo Hugging Face pode exigir rede/cache; provedor remoto exige chave (`api_key_env` ou `embedding.api_key`).
+- **Entrada:** `task_description` e cada `story_text` devem ser strings não vazias; `stories` não pode ser lista vazia.
+
 ## Testes
 
 Requer o extra **`[dev]`** (inclui `pytest`). Opcionalmente use também `[viz]` se algum teste ou fluxo local depender de matplotlib (na suite atual o foco é `pytest`).
@@ -278,7 +394,7 @@ pytest tests/
 
 ## Estrutura (resumo)
 
-- `src/embedding_models_eval/` — código importável (`pipeline`, `data`, `embeddings`, `metrics`, `ranking`, `cli.py`, …)
+- `src/embedding_models_eval/` — código importável (`pipeline`, `data`, `embeddings`, `metrics`, `ranking`, `task_dissimilarity`, `cli.py`, …)
 - `configs/` — YAML de referência
 - `tests/` — pytest
 - `run_pipeline.py`, `run_visualizations.py`, `run_tfidf_baseline.py` — atalhos que delegam ao pacote

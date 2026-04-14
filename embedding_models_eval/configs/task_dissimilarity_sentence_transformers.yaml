@@ -1,0 +1,9 @@
+# Ranking por dissimilaridade: embeddings locais (sentence-transformers).
+# Uso: task-dissimilarity-rank --config configs/task_dissimilarity_sentence_transformers.yaml --input task.json
+
+embedding:
+  backend: sentence_transformers
+  model: sentence-transformers/all-MiniLM-L6-v2
+  batch_size: 32
+  device: cpu
+  normalize: true

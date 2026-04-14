@@ -1,0 +1,10 @@
+# Ranking por dissimilaridade: API OpenAI ou compativel (OpenRouter via base_url).
+# Defina OPENAI_API_KEY ou ajuste api_key_env. Opcional: base_url para OpenRouter.
+
+embedding:
+  backend: openai
+  model: text-embedding-3-small
+  api_key_env: OPENAI_API_KEY
+  batch_size: 100
+  normalize: true
+  # base_url: https://openrouter.ai/api/v1

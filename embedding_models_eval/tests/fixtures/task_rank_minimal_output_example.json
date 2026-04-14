@@ -1,0 +1,21 @@
+{
+  "strategy": "embedding_dissimilarity",
+  "embedding_backend": "sentence_transformers",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "ranking": [
+    {
+      "story_id": "h_002",
+      "raw_similarity": 0.545714,
+      "raw_dissimilarity": 0.454286,
+      "normalized_score": 1.0,
+      "rank_position": 1
+    },
+    {
+      "story_id": "h_001",
+      "raw_similarity": 0.742433,
+      "raw_dissimilarity": 0.257567,
+      "normalized_score": 0.0,
+      "rank_position": 2
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "task_description": "Write a user story for login.",
+  "stories": [
+    {
+      "story_id": "h_001",
+      "story_text": "As a user I want to log in so that I can access my account."
+    },
+    {
+      "story_id": "h_002",
+      "story_text": "Given a server rack, when the moon is full, then paint it blue."
+    }
+  ]
+}

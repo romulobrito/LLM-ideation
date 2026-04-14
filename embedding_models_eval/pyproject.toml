@@ -34,6 +34,8 @@ dev = ["pytest>=7.0.0", "pytest-cov>=4.0.0"]
 embedding-eval = "embedding_models_eval.cli:main"
 embedding-viz = "embedding_models_eval.visualization_suite:main"
 embedding-tfidf = "embedding_models_eval.tfidf_baseline_runner:main"
+task-dissimilarity-rank = "embedding_models_eval.task_dissimilarity.cli:main"
+legacy-to-task-input = "embedding_models_eval.legacy_to_task_input:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
