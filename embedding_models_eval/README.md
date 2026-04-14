@@ -375,6 +375,20 @@ Apenas `tests/test_task_dissimilarity_smoke.py`: validação de entrada, YAML, c
 - **Infra:** primeira execução com modelo Hugging Face pode exigir rede/cache; provedor remoto exige chave (`api_key_env` ou `embedding.api_key`).
 - **Entrada:** `task_description` e cada `story_text` devem ser strings não vazias; `stories` não pode ser lista vazia.
 
+### Limitações e interpretação: métricas de votos (`ratio_*`, fluxo A)
+
+As métricas que comparam o ranking previsto aos votos reais (por exemplo `ratio_max`, `ratio_mean` e `ratio_min` relativos ao segundo colocado) **não medem apenas capacidade de ordenação**; convém interpretá-las com estes limites:
+
+1. **Sobreposição no topo sob acaso:** Com rankings independentes sobre o mesmo conjunto de 20 itens, a probabilidade de que **pelo menos um** dos 3 itens do top-3 real apareça entre as 3 primeiras posições de um ranking embaralhado é `1 - C(17,3)/C(20,3) ≈ 0,4035` (cerca de **40%**). Ou seja, coincidência posicional no topo pode ocorrer com frequência relevante **mesmo sem** capacidade real de ranqueamento.
+
+2. **Métrica permissiva:** O desenho que premia o melhor candidato presente no top-(N) por votos normalizados ao segundo colocado **não exige** acertar exatamente o item correto em cada posição. Em especial, `ratio_max` pode ficar alto se **qualquer** candidato muito votado aparecer entre as primeiras posições previstas, mesmo quando o restante do ranking é fraco.
+
+3. **Exemplo numérico:** Com votos reais A=100, B=95, C=94, D=93, … o alvo de normalização costuma ser B (95) após excluir o mais votado. Se o modelo colocar C ou D no top-3 (por ruído ou sorte), `ratio_max` pode aproximar-se de 94/95 ≈ 0,99 ou 93/95 ≈ 0,98 **sem** recuperar o candidato-alvo posicional.
+
+4. **Efeito de N:** Quando N aumenta, cresce a chance de **capturar por acaso** algum candidato eleitoralmente forte no conjunto previsto; isso pode elevar `ratio_max` enquanto `ratio_mean` permanece mais estável — padrão compatível com "encontrar alguém bom no conjunto" sem ordenar bem no interior do ranking.
+
+**Conclusão:** A conta combinatória **não invalida** a métrica, mas mostra que **interpretações fortes exigem uma baseline** (por exemplo, distribuição dos mesmos indicadores sob **rankings permutados aleatoriamente**). Sem comparação com o acaso, valores altos em `ratio_max` podem refletir facilidade combinatória e não, isoladamente, evidência de que o embedding ou o LLM capturou a preferência dos usuários.
+
 ## Testes
 
 Requer o extra **`[dev]`** (inclui `pytest`). Opcionalmente use também `[viz]` se algum teste ou fluxo local depender de matplotlib (na suite atual o foco é `pytest`).
