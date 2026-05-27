@@ -408,7 +408,21 @@ Artefatos de referência:
 - `results/feasible_range_ratio_only_minilm/comparacao_modelos_macro.csv`
 - `results/feasible_range_ratio_only_openai_large/comparacao_modelos_macro.csv`
 
-Limite atual: baseline aleatória por permutação ainda não está automatizada no pipeline (pendente no checklist).
+Status atual: baseline aleatoria por permutacao para `feasible_range_ratio` ja esta automatizada para o fluxo H2 via YAML + runner dedicado.
+
+Comandos reprodutiveis (paper, mesmo protocolo de H1):
+
+```bash
+cd embedding_models_eval
+python scripts/run_h2_batch.py --config configs/h2_batch_paper_models.yaml
+python scripts/run_h2_random_baseline.py --config configs/h2_random_baseline_2500.yaml
+```
+
+Artefatos principais:
+
+- `results/experimento2_h2/` (H2 por modelo)
+- `results/experimento2_h1_h2/` (consolidacao H1+H2)
+- `results/experimento2_h2_random_baseline_2500/summary.csv` (random_mean, p95)
 
 ## Testes
 

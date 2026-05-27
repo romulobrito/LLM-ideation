@@ -1,0 +1,34 @@
+protocol:
+  k_values: [1, 2, 3, 4, 5, 6, 7]
+  num_permutations: 2500
+  percentiles: [95]
+  seed: 42
+
+dataset:
+  output_csv: results/experimento2_h2_random_baseline_2500/summary.csv
+  output_json: results/experimento2_h2_random_baseline_2500/summary.json
+
+models:
+  - name: all-mpnet-base-v2
+    detailed_json: results/experimento2_h2/all-mpnet-base-v2/resultados_h2_detalhado.json
+
+  - name: text-embedding-3-large
+    detailed_json: results/experimento2_h2/text-embedding-3-large/resultados_h2_detalhado.json
+
+  - name: all-MiniLM-L12-v2
+    detailed_json: results/experimento2_h2/all-MiniLM-L12-v2/resultados_h2_detalhado.json
+
+  - name: all-MiniLM-L6-v2
+    detailed_json: results/experimento2_h2/all-MiniLM-L6-v2/resultados_h2_detalhado.json
+
+  - name: text-embedding-3-small
+    detailed_json: results/experimento2_h2/text-embedding-3-small/resultados_h2_detalhado.json
+
+  - name: multi-qa-MiniLM-L6-cos-v1
+    detailed_json: results/experimento2_h2/multi-qa-MiniLM-L6-cos-v1/resultados_h2_detalhado.json
+
+  - name: paraphrase-MiniLM-L12-v2
+    detailed_json: results/experimento2_h2/paraphrase-MiniLM-L12-v2/resultados_h2_detalhado.json
+
+  - name: paraphrase-multilingual-MiniLM
+    detailed_json: results/experimento2_h2/paraphrase-multilingual-MiniLM/resultados_h2_detalhado.json
