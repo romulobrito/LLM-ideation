@@ -1,0 +1,39 @@
+# Minimal config for feasible_range_ratio validation only (openai_large).
+
+dataset:
+  path: "saida_final.json"
+  text_col: "extracted_idea_250"
+  truncate_content: 0
+
+models:
+  - name: "openai_large"
+    provider: "openai"
+    config:
+      model_name: "text-embedding-3-large"
+      api_key: "${OPENAI_API_KEY}"
+      batch_size: 100
+      normalize: true
+      max_retries: 3
+
+metrics:
+  k_values: [1, 2, 3, 4, 5, 6, 7]
+  metric_names:
+    - "feasible_range_ratio"
+
+ranking:
+  group_cols: ["contest_number", "context_prompt_url"]
+  rank_col: "rank_in_prompt"
+  anchor_rank: 1
+
+output:
+  results_dir: "results/feasible_range_ratio_only_openai_large"
+  save_detailed: true
+  save_detailed_json: false
+  save_summary: true
+  save_summary_json: true
+  save_summary_excel: false
+
+pipeline_extras:
+  save_per_prompt_metrics: false
+  run_tfidf_baseline: false
+  run_visualizations: false

@@ -12,8 +12,13 @@ from .base import (
     list_metrics,
     compute_all_metrics,
 )
-from .ir_metrics import IRMetrics
 from .votes_metrics import VotesMetrics
+from .feasible_range_ratio import FeasibleRangeRatioMetrics
+
+try:
+    from .ir_metrics import IRMetrics
+except Exception:  # pragma: no cover - defensive for optional runtime deps
+    IRMetrics = None
 
 __all__ = [
     "Metric",
@@ -21,6 +26,9 @@ __all__ = [
     "get_metric",
     "list_metrics",
     "compute_all_metrics",
-    "IRMetrics",
     "VotesMetrics",
+    "FeasibleRangeRatioMetrics",
 ]
+
+if IRMetrics is not None:
+    __all__.append("IRMetrics")

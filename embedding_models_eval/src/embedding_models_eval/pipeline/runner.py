@@ -42,6 +42,9 @@ def build_comparison_table(resultados_por_modelo: Dict[str, Dict]) -> pd.DataFra
     for modelo_name, resultados in resultados_por_modelo.items():
         ir_macro = resultados.get("ir_metrics", {}).get("macro", {})
         votes_macro = resultados.get("votes_metrics", {}).get("macro", {})
+        feasible_macro = resultados.get("feasible_range_ratio_metrics", {}).get(
+            "macro", {}
+        )
         
         row = {"Modelo": modelo_name}
         
@@ -59,6 +62,14 @@ def build_comparison_table(resultados_por_modelo: Dict[str, Dict]) -> pd.DataFra
                 row[mean_key] = votes_macro[mean_key]
             if norm_key in votes_macro:
                 row[norm_key] = votes_macro[norm_key]
+
+        # Adiciona metricas feasible_range_ratio (apenas medias, para manter
+        # a tabela comparativa enxuta e retrocompativel com o padrao atual).
+        feasible_mean_keys = sorted(
+            k for k in feasible_macro.keys() if k.startswith("ratio_") and k.endswith("_mean")
+        )
+        for key in feasible_mean_keys:
+            row[key] = feasible_macro[key]
         
         rows.append(row)
     
@@ -303,6 +314,9 @@ def run_experiment(
                 "df_scored": df_scored,
                 "ir_metrics": metricas_resultados.get("ir", {}),
                 "votes_metrics": metricas_resultados.get("votes", {}),
+                "feasible_range_ratio_metrics": metricas_resultados.get(
+                    "feasible_range_ratio", {}
+                ),
             }
             
             if verbose:

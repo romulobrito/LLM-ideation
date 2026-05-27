@@ -389,6 +389,27 @@ As métricas que comparam o ranking previsto aos votos reais (por exemplo `ratio
 
 **Conclusão:** A conta combinatória **não invalida** a métrica, mas mostra que **interpretações fortes exigem uma baseline** (por exemplo, distribuição dos mesmos indicadores sob **rankings permutados aleatoriamente**). Sem comparação com o acaso, valores altos em `ratio_max` podem refletir facilidade combinatória e não, isoladamente, evidência de que o embedding ou o LLM capturou a preferência dos usuários.
 
+### Status atual: `feasible_range_ratio`
+
+Implementação aditiva concluída para a métrica normalizada por faixa factível:
+
+- módulo: `src/embedding_models_eval/metrics/feasible_range_ratio.py`
+- registro da métrica: nome `feasible_range_ratio`
+- integração no pipeline: exporta `ratio_max@N_mean`, `ratio_mean@N_mean`, `ratio_min@N_mean` na tabela macro quando ativada
+- testes: `tests/test_feasible_range_ratio_metrics.py` e `tests/test_feasible_range_ratio_integration.py`
+
+Execuções mínimas já validadas:
+
+- `configs/feasible_range_ratio_only_minimal.yaml` (`minilm`)
+- `configs/feasible_range_ratio_only_openai_large.yaml` (`openai_large`)
+
+Artefatos de referência:
+
+- `results/feasible_range_ratio_only_minilm/comparacao_modelos_macro.csv`
+- `results/feasible_range_ratio_only_openai_large/comparacao_modelos_macro.csv`
+
+Limite atual: baseline aleatória por permutação ainda não está automatizada no pipeline (pendente no checklist).
+
 ## Testes
 
 Requer o extra **`[dev]`** (inclui `pytest`). Opcionalmente use também `[viz]` se algum teste ou fluxo local depender de matplotlib (na suite atual o foco é `pytest`).
